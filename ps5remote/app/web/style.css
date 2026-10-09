@@ -139,7 +139,9 @@ footer { padding: 6px 16px 10px; }
 }
 .modal[hidden] { display: none; }
 .modal-box { background: var(--panel); border-radius: 12px; padding: 18px; max-width: 380px; width: 100%; }
-.modal-box input { width: 100%; }
+.modal-box input, .modal-box select { width: 100%; }
+.modal-box select { margin-top: 10px; }
+.modal-error { color: #ff9a9d; font-size: 13px; margin: 8px 0 0; }
 #capture .modal-box { text-align: center; }
 #capture-text { font-size: 18px; }
 

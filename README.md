@@ -177,9 +177,17 @@ Each profile has two options:
   directions repeat, which suits menus.
 - **The captured mouse moves the right stick.**
 
-Built-in profiles: **Menus** (arrows + Enter/Backspace), **Games** (WASD as the D-pad, IJKL
-as face buttons) and **Gaming** (WASD + mouse). Add, delete or **Reset to defaults** at any
-time. Switch profiles with the dropdown or **F2**.
+Built-in profiles: **Menus** (arrows + Enter/Backspace) and **Gaming** (WASD + mouse).
+
+**Your own profiles:** click **New profile**, name it (up to 24 characters), and choose what it
+starts with:
+- a copy of the current profile;
+- the default Menus or Gaming layout;
+- nothing bound, in gaming style or menu style.
+
+Then bind its keys. **Rename** and **Delete profile** act on the current profile. **Reset to
+defaults** restores the built-in profiles and removes your own. You can have up to 12
+profiles. Switch between them with the dropdown or **F2**.
 
 ### Settings tab
 

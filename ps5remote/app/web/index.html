@@ -208,17 +208,17 @@
     <section id="tab-keys" class="panel">
       <div class="row">
         <button id="profile-add" class="action">New profile</button>
+        <button id="profile-rename" class="action">Rename</button>
         <button id="profile-delete" class="action danger">Delete profile</button>
         <button id="keys-reset" class="action">Reset to defaults</button>
       </div>
       <div class="profile-opts">
         <label class="check"><input type="checkbox" id="opt-hold"> Gaming profile: buttons stay
           down while their key is held (off: each press is a tap, and directions repeat)</label>
-        <label class="check"><input type="checkbox" id="opt-mouse"> The captured mouse moves
-          the right stick</label>
       </div>
       <p class="hint">Click <strong>+</strong>, then press a key, click a mouse button or turn the
-        wheel to bind it. Click a binding to remove it. Esc cancels. Changes save straight away.</p>
+        wheel to bind it. Click a binding to remove it. Esc cancels. Changes save straight away.
+        In every profile, the captured mouse moves the right stick.</p>
       <div id="key-table"></div>
     </section>
 
@@ -321,6 +321,8 @@
     <div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="modal-text">
       <p id="modal-text"></p>
       <input id="modal-input" type="text" maxlength="24" hidden>
+      <select id="modal-select" hidden></select>
+      <p id="modal-error" class="modal-error" hidden></p>
       <div class="row end">
         <button id="modal-cancel" class="action">Cancel</button>
         <button id="modal-ok" class="action primary">OK</button>

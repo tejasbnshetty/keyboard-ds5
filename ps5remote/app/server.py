@@ -206,6 +206,7 @@ class AppServer:
             await self._send(ws, {"type": "init", "settings": self.settings.to_dict(),
                                   "keymaps": self.keymaps, "buttons": list(BUTTONS),
                                   "actions": list(ACTIONS), "repeatable": sorted(REPEATABLE),
+                                  "templates": keymaps.DEFAULTS["profiles"],
                                   "build": self.build_info()})
             await self._send(ws, {"type": "pad", **self._pad_view()})
             await self._send(ws, {"type": "setup", **self.wizard.public_state()})
@@ -349,7 +350,9 @@ class AppServer:
         try:
             clean = keymaps.validate(data, self.settings.hotkeys())
         except ValueError as err:
-            return await self.event("error", f"Key maps not saved: {err}")
+            await self.event("error", f"Key maps not saved: {err}")
+            # Put the interface back to what's actually saved.
+            return await self.broadcast({"type": "keymaps", "keymaps": self.keymaps})
         self.keymaps = clean
         keymaps.save(clean)
         await self.broadcast({"type": "keymaps", "keymaps": clean})
