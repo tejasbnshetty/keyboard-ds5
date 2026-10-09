@@ -23,7 +23,7 @@ echo Personal build: contains private PSN sign-in values. Do not distribute.> bu
 echo.
 echo ************************************************************************
 echo *  PERSONAL BUILD - DO NOT DISTRIBUTE                                  *
-echo *  dist\PS5Remote-personal.exe will contain the Sony sign-in values     *
+echo *  dist\KeyboardDS5-personal.exe will contain the Sony sign-in values  *
 echo *  from data\psn_client.json. Keep it on your own PC. Never upload it,  *
 echo *  share it, or commit it.                                              *
 echo ************************************************************************
@@ -34,9 +34,9 @@ echo.
 if exist build\PERSONAL_BUILD.txt del build\PERSONAL_BUILD.txt
 echo.
 if "%PS5REMOTE_PERSONAL%"=="1" (
-    echo Built dist\PS5Remote-personal.exe   ^<-- PERSONAL, DO NOT DISTRIBUTE
+    echo Built dist\KeyboardDS5-personal.exe   ^<-- PERSONAL, DO NOT DISTRIBUTE
 ) else (
-    echo Built dist\PS5Remote.exe   ^(public: your psn_client.json is not inside^)
+    echo Built dist\KeyboardDS5.exe   ^(public: your psn_client.json is not inside^)
 )
 echo The app keeps its data in %%APPDATA%%\PS5Remote. On first run it offers to copy an
 echo existing data folder found next to the .exe or one folder up.

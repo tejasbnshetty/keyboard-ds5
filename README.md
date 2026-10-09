@@ -1,4 +1,4 @@
-# PS5 Phone Remote
+# Keyboard DS5
 
 Control a PlayStation 5 from a Windows PC over the Remote Play protocol: a TV-style remote
 for menus and streaming apps, and keyboard-and-mouse controls for games. It sends controller
@@ -270,7 +270,7 @@ explains what's missing. `psn_client.json` is gitignored. Never commit or share 
 
 ## Building the .exe
 
-You can package the app as a single `PS5Remote.exe` that runs without Python or a terminal:
+You can package the app as a single `KeyboardDS5.exe` that runs without Python or a terminal:
 handy for a desktop shortcut, or for running it on another PC. No prebuilt downloads are
 published, so build it yourself from the source.
 
@@ -282,17 +282,17 @@ published, so build it yourself from the source.
    .\build.bat public
    ```
 
-   This takes a minute or two and creates `dist\PS5Remote.exe`.
+   This takes a minute or two and creates `dist\KeyboardDS5.exe`.
 3. **Add sign-in values for the .exe.** It keeps its data in `%APPDATA%\PS5Remote\data`, so
    put your `psn_client.json` there (see [PSN sign-in values](#psn-sign-in-values)), or use
    the environment variables.
-4. **Run `dist\PS5Remote.exe`.** On first run it opens the setup wizard. If you've already
+4. **Run `dist\KeyboardDS5.exe`.** On first run it opens the setup wizard. If you've already
    paired from source, run it from `dist\` once first: it finds the project's `data` folder
    and offers to copy it (the original stays). After that you can move the .exe anywhere, for
    example to your desktop.
 
 **Personal build.** `.\build.bat` without `public` bundles your `data\psn_client.json` into
-`dist\PS5Remote-personal.exe`, so step 3 isn't needed. It's for your own PC only: it contains
+`dist\KeyboardDS5-personal.exe`, so step 3 isn't needed. It's for your own PC only: it contains
 your sign-in values, says "personal build" in its title bar, and must never be shared or
 uploaded (`dist\` and `*-personal.exe` are gitignored). If there's no `data\psn_client.json`,
 `build.bat` makes a public build instead. Neither build contains pairing data.
@@ -302,7 +302,7 @@ contains its own copy of the sign-in values. This app never uses that copy, but 
 distributing a build is distributing those values too.
 
 **Good to know:**
-- The .exe accepts the same options as `.\ps5.bat app` (e.g. `PS5Remote.exe --setup`), and
+- The .exe accepts the same options as `.\ps5.bat app` (e.g. `KeyboardDS5.exe --setup`), and
   writes its logs to `%APPDATA%\PS5Remote\logs`.
 - It isn't code-signed, so Windows SmartScreen may say "Windows protected your PC" the first
   time. Choose **More info → Run anyway**, but only for a build you made yourself or trust.
@@ -340,11 +340,11 @@ and never moves.
 No inbound rule is needed: everything starts from the PC, and Windows allows the replies. If
 Windows asks about network access, allow **Private networks** only. If the console search
 finds nothing but entering the IP address works, add this narrow rule (PowerShell as
-administrator; use the path to `PS5Remote.exe`, or to `.venv\Scripts\pythonw.exe` when running
+administrator; use the path to `KeyboardDS5.exe`, or to `.venv\Scripts\pythonw.exe` when running
 from source):
 
 ```powershell
-New-NetFirewallRule -DisplayName "PS5 Remote - console search replies" -Direction Inbound -Action Allow -Profile Private -Protocol UDP -LocalPort 9303 -RemoteAddress LocalSubnet -Program "C:\path\to\PS5Remote.exe"
+New-NetFirewallRule -DisplayName "Keyboard DS5 - console search replies" -Direction Inbound -Action Allow -Profile Private -Protocol UDP -LocalPort 9303 -RemoteAddress LocalSubnet -Program "C:\path\to\KeyboardDS5.exe"
 ```
 
 ### Keep the console's address fixed

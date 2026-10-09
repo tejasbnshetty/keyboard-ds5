@@ -298,7 +298,7 @@ def cmd_app(args) -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(prog="ps5.bat", description="PS5 phone remote - command line")
+    parser = argparse.ArgumentParser(prog="ps5.bat", description="Keyboard DS5 - command line")
     parser.add_argument("-v", "--verbose", action="store_true", help="show more log output")
     parser.add_argument("--safe-connect", action="store_true",
                         help="wait for the PS5's own session ID (about 1.5 s slower to connect)")

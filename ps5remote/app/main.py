@@ -100,7 +100,7 @@ def make_login_opener(webview):
 
 
 def parse_args(argv=None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(prog="PS5Remote", description="PS5 Remote app")
+    parser = argparse.ArgumentParser(prog="KeyboardDS5", description="Keyboard DS5 app")
     parser.add_argument("--debug", action="store_true", help="verbose logs and devtools")
     parser.add_argument("--browser", action="store_true",
                         help="open the interface in your default browser instead of a window")
@@ -167,7 +167,7 @@ def _run_window(debug: bool, setup: bool, redact: Redact) -> None:
         _LOGGER.error("Server failed to start: %s", result.get("error"))
         sys.exit(1)
 
-    title = "PS5 Remote"
+    title = "Keyboard DS5"
     if AppServer.build_info()["personal"]:
         title += " (personal build - do not distribute)"
     webview.create_window(title, result["url"], width=660, height=820,
