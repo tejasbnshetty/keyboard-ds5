@@ -5,17 +5,51 @@
 const BUTTON_LABELS = {
   up: "Up", down: "Down", left: "Left", right: "Right", cross: "Cross ✕", circle: "Circle ○",
   triangle: "Triangle △", square: "Square □", options: "Options", ps: "PS", l1: "L1", r1: "R1",
-  l2: "L2", r2: "R2",
+  l2: "L2", r2: "R2", l3: "L3 (left stick click)", r3: "R3 (right stick click)", touchpad: "Touchpad",
+};
+const ACTION_LABELS = {
+  ...BUTTON_LABELS,
+  ls_up: "Up", ls_down: "Down", ls_left: "Left", ls_right: "Right",
+  rs_up: "Up", rs_down: "Down", rs_left: "Left", rs_right: "Right",
+  walk: "Walk (half tilt)", light_trigger: "Light L2/R2",
+};
+const ACTION_GROUPS = [
+  ["Left stick", ["ls_up", "ls_down", "ls_left", "ls_right", "walk"]],
+  ["Buttons", ["cross", "circle", "square", "triangle", "l1", "r1", "l2", "r2", "light_trigger",
+    "l3", "r3", "options", "touchpad", "ps"]],
+  ["D-pad", ["up", "down", "left", "right"]],
+  ["Right stick from keys (the mouse also moves it while captured)", ["rs_up", "rs_down", "rs_left", "rs_right"]],
+];
+const INPUT_LABELS = {
+  Mouse0: "Left click", Mouse1: "Middle click", Mouse2: "Right click", Mouse3: "Back button",
+  Mouse4: "Forward button", WheelUp: "Wheel up", WheelDown: "Wheel down",
+  ShiftLeft: "L-Shift", ShiftRight: "R-Shift", AltLeft: "L-Alt", AltRight: "R-Alt",
+  ControlLeft: "L-Ctrl", ControlRight: "R-Ctrl", Space: "Space",
+  ArrowUp: "↑", ArrowDown: "↓", ArrowLeft: "←", ArrowRight: "→",
+};
+// Compact names for the keycaps on the on-screen buttons.
+const SHORT_LABELS = {
+  Mouse0: "LMB", Mouse1: "MMB", Mouse2: "RMB", Mouse3: "M4", Mouse4: "M5",
+  WheelUp: "Wheel↑", WheelDown: "Wheel↓", ShiftLeft: "LShift", ShiftRight: "RShift",
+  AltLeft: "LAlt", AltRight: "RAlt", ControlLeft: "LCtrl", ControlRight: "RCtrl",
+  Backspace: "Bksp", Escape: "Esc", Backslash: "\\", Slash: "/", Comma: ",", Period: ".",
+  Semicolon: ";", Quote: "'", BracketLeft: "[", BracketRight: "]", Minus: "-", Equal: "=",
+  Backquote: "`", CapsLock: "Caps",
 };
 const POWER_LABELS = {
   on: "On", asleep: "Asleep", unreachable: "Not reachable", unknown: "Checking…",
   setup_needed: "Setup needed",
 };
+const MOUSE_SEND_MS = 8;        // mouse movement batches, ~125 a second
+const WHEEL_GAP_MS = 60;        // one wheel "press" per notch, not per scroll event
+const MAX_MOUSE_EVENT = 2000;   // drop the occasional bogus jump right after capture
 
 const state = {
-  ws: null, settings: null, keymaps: null, buttons: [], repeatable: new Set(),
-  status: {}, held: null, capture: null, retry: 500, setup: null,
+  ws: null, settings: null, keymaps: null, buttons: [], buttonSet: new Set(), actions: [],
+  repeatable: new Set(), status: {}, held: null, capture: null, retry: 500, setup: null,
+  captured: false, mouse: { dx: 0, dy: 0, timer: null }, wheelAt: 0,
 };
+const heldInputs = new Map();   // input -> { action, kind: "menu" | "act" }
 const wiz = { step: 1, lastAction: null, migrationAsked: false, wasActive: false };
 const token = new URLSearchParams(location.search).get("token") || "";
 const $ = (sel) => document.querySelector(sel);
@@ -28,6 +62,7 @@ function connect() {
   ws.onmessage = (e) => handle(JSON.parse(e.data));
   ws.onclose = () => {
     setPower("unknown");
+    releaseCapture();
     setTimeout(connect, state.retry);
     state.retry = Math.min(state.retry * 2, 5000);
   };
@@ -41,6 +76,8 @@ function handle(msg) {
   switch (msg.type) {
     case "init":
       state.buttons = msg.buttons;
+      state.buttonSet = new Set(msg.buttons);
+      state.actions = msg.actions;
       state.repeatable = new Set(msg.repeatable);
       applySettings(msg.settings);
       applyKeymaps(msg.keymaps);
@@ -50,6 +87,12 @@ function handle(msg) {
     case "status": applyStatus(msg); break;
     case "settings": applySettings(msg.settings); break;
     case "keymaps": applyKeymaps(msg.keymaps); break;
+    case "pad": renderPad(msg); break;
+    case "game_reset":
+      releaseCapture();
+      releaseAllInputs();
+      log("Released everything: the PS5 session ended. Press a key or capture the mouse to reconnect.", "dropped");
+      break;
     case "event": log(msg.message, msg.kind, msg.time); break;
     case "error": log(msg.message, "error"); break;
   }
@@ -102,6 +145,8 @@ function log(text, kind = "info", time = "") {
   while (list.children.length > 6) list.lastChild.remove();
 }
 
+// On-screen buttons and menu-style profiles: taps, and held directions repeat ------------
+
 function buttonDown(button) {
   document.querySelectorAll(`[data-button="${button}"]`).forEach((el) => el.classList.add("pressed"));
   if (state.repeatable.has(button)) {
@@ -135,13 +180,52 @@ $$(".btn[data-button]").forEach((el) => {
   el.addEventListener("lostpointercapture", up);
 });
 
+// Bound inputs (keys, mouse buttons) -> actions ---------------------------------------
+
 function activeProfile() {
-  return state.keymaps ? state.keymaps.profiles[state.keymaps.active] : {};
+  return state.keymaps ? state.keymaps.profiles[state.keymaps.active] : null;
 }
 
-function buttonForKey(code) {
-  const profile = activeProfile();
-  return Object.keys(profile).find((b) => profile[b] === code);
+function actionFor(input) {
+  const p = activeProfile();
+  return p ? p.bindings[input] : undefined;
+}
+
+/** Returns true if the input is bound (so the browser's default should be blocked). */
+function inputDown(input) {
+  const action = actionFor(input);
+  if (!action) return false;
+  if (heldInputs.has(input)) return true;
+  if (state.buttonSet.has(action) && !activeProfile().hold_buttons) {
+    heldInputs.set(input, { action, kind: "menu" });
+    buttonDown(action);
+  } else {
+    heldInputs.set(input, { action, kind: "act" });
+    $$(`[data-button="${action}"]`).forEach((el) => el.classList.add("pressed"));
+    send({ type: "act", action, down: true });
+  }
+  return true;
+}
+
+function inputUp(input) {
+  const held = heldInputs.get(input);
+  if (!held) return false;
+  heldInputs.delete(input);   // released by what it pressed, even if the profile changed since
+  if (held.kind === "menu") {
+    buttonUp(held.action);
+  } else {
+    send({ type: "act", action: held.action, down: false });
+    if (![...heldInputs.values()].some((h) => h.action === held.action)) {
+      $$(`[data-button="${held.action}"]`).forEach((el) => el.classList.remove("pressed"));
+    }
+  }
+  return true;
+}
+
+function releaseAllInputs() {
+  [...heldInputs.keys()].forEach(inputUp);
+  releaseAll();
+  send({ type: "neutral" });
 }
 
 function typingInField(e) {
@@ -149,26 +233,240 @@ function typingInField(e) {
   return t && (t.tagName === "INPUT" || t.tagName === "SELECT" || t.tagName === "TEXTAREA");
 }
 
+function inputsBlocked() {
+  return !$("#modal").hidden || wizardActive();
+}
+
 document.addEventListener("keydown", (e) => {
   if (state.capture) { e.preventDefault(); finishCapture(e.code); return; }
-  if (!$("#modal").hidden || typingInField(e) || wizardActive()) return;
+  if (inputsBlocked() || typingInField(e)) return;
+  if (state.settings && e.code === state.settings.mouse_toggle_key) {
+    e.preventDefault();
+    if (!e.repeat) toggleMouseCapture();
+    return;
+  }
   if (state.settings && e.code === state.settings.profile_hotkey) {
     e.preventDefault();
     if (!e.repeat) cycleProfile();
     return;
   }
-  const button = buttonForKey(e.code);
-  if (!button) return;
-  e.preventDefault();
-  if (!e.repeat) buttonDown(button);   // the server does hold-to-repeat, not the OS
+  if (e.repeat) {   // the server repeats held directions; the OS repeat is ignored
+    if (actionFor(e.code)) e.preventDefault();
+    return;
+  }
+  if (inputDown(e.code)) e.preventDefault();
 });
 
 document.addEventListener("keyup", (e) => {
-  const button = buttonForKey(e.code);
-  if (button) { e.preventDefault(); buttonUp(button); }
+  if (inputUp(e.code) || actionFor(e.code)) e.preventDefault();   // e.g. Alt: no menu
 });
 
-window.addEventListener("blur", releaseAll);  // never leave a button held if focus moves away
+// Never leave anything held if focus moves away or the window is minimised.
+function letGo() {
+  releaseCapture();
+  if (heldInputs.size || state.held) releaseAllInputs();
+}
+window.addEventListener("blur", letGo);
+document.addEventListener("visibilitychange", () => { if (document.hidden) letGo(); });
+
+// Mouse capture (pointer lock) --------------------------------------------------------
+
+async function requestCapture() {
+  const target = document.body;
+  try {
+    const result = target.requestPointerLock({ unadjustedMovement: true });  // raw, no OS acceleration
+    if (result && result.then) await result;
+  } catch (err) {
+    try {
+      const result = target.requestPointerLock();
+      if (result && result.then) await result;
+    } catch (err2) {
+      log(`Couldn't capture the mouse (${err2.name || err2}). Click "Capture mouse" to try again.`, "error");
+    }
+  }
+}
+
+function releaseCapture() {
+  if (document.pointerLockElement) document.exitPointerLock();
+}
+
+/** The profile to game in: the current one if it uses the mouse, else "Gaming", else any that does. */
+function gamingProfileName() {
+  const km = state.keymaps;
+  if (!km) return null;
+  if (km.profiles[km.active].mouse_stick) return km.active;
+  if (km.profiles.Gaming && km.profiles.Gaming.mouse_stick) return "Gaming";
+  return Object.keys(km.profiles).find((name) => km.profiles[name].mouse_stick) || null;
+}
+
+function toggleMouseCapture() {
+  if (state.captured) { releaseCapture(); return; }
+  const name = gamingProfileName();
+  if (!name) {
+    log("No profile uses the mouse. In the Keys tab, tick \"The captured mouse moves the right stick\", or Reset to defaults to get the Gaming profile back.", "error");
+    return;
+  }
+  if (name !== state.keymaps.active) {
+    setProfile(name);
+    log(`Switched to the ${name} profile (WASD + mouse).`);
+  }
+  requestCapture();   // still inside the key press / click, as pointer lock requires
+}
+
+$("#capture-mouse").addEventListener("click", (e) => { e.currentTarget.blur(); toggleMouseCapture(); });
+
+document.addEventListener("pointerlockchange", () => {
+  const on = document.pointerLockElement === document.body;
+  if (on === state.captured) return;
+  state.captured = on;
+  send({ type: "capture", on });
+  if (on) {
+    state.mouse.timer = setInterval(flushMouse, MOUSE_SEND_MS);
+  } else {
+    clearInterval(state.mouse.timer);
+    state.mouse.dx = state.mouse.dy = 0;
+    if (heldInputs.size || state.held) releaseAllInputs();   // centred and released
+  }
+  renderCaptureState();
+});
+
+document.addEventListener("pointerlockerror", () => {
+  log("The window refused to capture the mouse. Click inside it first, or wait a second after pressing Esc.", "error");
+});
+
+function renderCaptureState() {
+  $("#captured-banner").hidden = !state.captured;
+  const btn = $("#capture-mouse");
+  btn.classList.toggle("on", state.captured);
+  const key = state.settings ? keyLabel(state.settings.mouse_toggle_key) : "F1";
+  const p = activeProfile();
+  const idle = p && !p.mouse_stick ? `Start gaming (${key})` : `Capture mouse (${key})`;
+  btn.textContent = state.captured ? `Release mouse (${key} / Esc)` : idle;
+  $("#captured-key").textContent = key;
+}
+
+document.addEventListener("mousemove", (e) => {
+  if (!state.captured) return;
+  const p = activeProfile();
+  if (!p || !p.mouse_stick) return;
+  if (Math.abs(e.movementX) > MAX_MOUSE_EVENT || Math.abs(e.movementY) > MAX_MOUSE_EVENT) return;
+  state.mouse.dx += e.movementX;
+  state.mouse.dy += e.movementY;
+});
+
+function flushMouse() {
+  const m = state.mouse;
+  if (!m.dx && !m.dy) return;
+  send({ type: "mouse", dx: m.dx, dy: m.dy });
+  m.dx = m.dy = 0;
+}
+
+// Mouse buttons: only while captured (otherwise they click the interface). The back and
+// forward buttons are always blocked so they can't navigate away from the app.
+document.addEventListener("mousedown", (e) => {
+  if (state.capture) return;   // binding: handled by the capture overlay
+  if (e.button >= 3) e.preventDefault();
+  if (!state.captured || inputsBlocked()) return;
+  e.preventDefault();
+  inputDown(`Mouse${e.button}`);
+});
+document.addEventListener("mouseup", (e) => {
+  if (e.button >= 3) e.preventDefault();
+  if (inputUp(`Mouse${e.button}`)) e.preventDefault();
+});
+document.addEventListener("auxclick", (e) => { if (e.button >= 3 || state.captured) e.preventDefault(); });
+document.addEventListener("contextmenu", (e) => { if (state.captured || state.capture) e.preventDefault(); });
+
+document.addEventListener("wheel", (e) => {
+  if (!state.captured || inputsBlocked() || !e.deltaY) return;
+  e.preventDefault();
+  const now = performance.now();
+  if (now - state.wheelAt < WHEEL_GAP_MS) return;
+  state.wheelAt = now;
+  const action = actionFor(e.deltaY < 0 ? "WheelUp" : "WheelDown");
+  if (action && state.buttonSet.has(action)) {
+    send({ type: "press", button: action });
+    flashButton(action);
+  }
+}, { passive: false });
+
+// Stick visualiser --------------------------------------------------------------------
+
+function placeDot(el, numEl, [x, y]) {
+  el.style.left = `${50 + x * 42}%`;
+  el.style.top = `${50 + y * 42}%`;
+  numEl.textContent = `${x.toFixed(2)}, ${(-y).toFixed(2)}`;   // shown with up = positive
+}
+
+function renderPad(p) {
+  placeDot($("#viz-left"), $("#viz-left-num"), p.left);
+  placeDot($("#viz-right"), $("#viz-right-num"), p.right);
+  $("#viz-l2").style.height = `${((p.buttons.l2 || 0) / 255) * 100}%`;
+  $("#viz-r2").style.height = `${((p.buttons.r2 || 0) / 255) * 100}%`;
+  const held = Object.keys(p.buttons).map((b) => (b === "l2" || b === "r2") && p.buttons[b] < 255
+    ? `${b.toUpperCase()} ${Math.round((p.buttons[b] / 255) * 100)}%` : (BUTTON_LABELS[b] || b));
+  $("#viz-buttons").textContent = held.length ? `Held: ${held.join(", ")}` : "No buttons held";
+}
+
+function shortLabel(code) { return SHORT_LABELS[code] || keyLabel(code); }
+
+function inputsFor(action) {
+  const p = activeProfile();
+  return p ? Object.keys(p.bindings).filter((input) => p.bindings[input] === action) : [];
+}
+
+/** Shows each on-screen button's keys/mouse inputs in the current profile, and the sticks'. */
+function renderKeycaps() {
+  $$(".btn[data-button]").forEach((el) => {
+    let cap = el.querySelector(".keycap");
+    if (!cap) {
+      cap = document.createElement("span");
+      cap.className = "keycap";
+      cap.setAttribute("aria-hidden", "true");
+      el.append(cap);
+    }
+    const inputs = inputsFor(el.dataset.button);
+    cap.textContent = inputs.slice(0, 2).map(shortLabel).join(" · ") + (inputs.length > 2 ? " …" : "");
+    cap.hidden = !inputs.length;
+    el.title = inputs.length ? `${BUTTON_LABELS[el.dataset.button]}: ${inputs.map(keyLabel).join(", ")}` : "";
+  });
+  const dirs = (prefix) => ["up", "left", "down", "right"]
+    .map((d) => inputsFor(`${prefix}_${d}`)[0]).filter(Boolean).map(shortLabel);
+  const walk = inputsFor("walk")[0];
+  const left = dirs("ls");
+  $("#viz-left-keys").textContent = [left.join(" "), walk ? `${shortLabel(walk)} walk` : ""]
+    .filter(Boolean).join(" · ");
+  const p = activeProfile();
+  const right = dirs("rs");
+  $("#viz-right-keys").textContent = [p && p.mouse_stick ? "Mouse" : "", right.join(" ")]
+    .filter(Boolean).join(" · ");
+}
+
+function flashButton(button) {
+  const els = $$(`[data-button="${button}"]`);
+  els.forEach((el) => el.classList.add("pressed"));
+  setTimeout(() => els.forEach((el) => {
+    if (![...heldInputs.values()].some((h) => h.action === button)) el.classList.remove("pressed");
+  }), 120);
+}
+
+function renderGamingHint() {
+  const p = activeProfile();
+  const hint = $("#gaming-hint");
+  if (!p) { hint.textContent = ""; return; }
+  const key = state.settings ? keyLabel(state.settings.mouse_toggle_key) : "F1";
+  const target = gamingProfileName();
+  if (p.mouse_stick) {
+    hint.textContent = `Profile "${state.keymaps.active}": WASD moves, ${key} captures the mouse to aim. Release it before using the rest of this window.`;
+  } else if (target) {
+    hint.textContent = `Profile "${state.keymaps.active}" is for menus. ${key} switches to "${target}" (WASD + mouse) and captures the mouse.`;
+  } else {
+    hint.textContent = "No profile uses the mouse yet: see the Keys tab.";
+  }
+  renderCaptureState();
+}
+
+// Profiles and the Keys tab -----------------------------------------------------------
 
 $("#wake").addEventListener("click", () => send({ type: "wake" }));
 $("#disconnect").addEventListener("click", () => send({ type: "disconnect" }));
@@ -204,8 +502,7 @@ function confirmBox(text, withInput = false, initial = "") {
 
 function keyLabel(code) {
   if (!code) return "—";
-  const arrows = { ArrowUp: "↑", ArrowDown: "↓", ArrowLeft: "←", ArrowRight: "→" };
-  if (arrows[code]) return arrows[code];
+  if (INPUT_LABELS[code]) return INPUT_LABELS[code];
   if (/^Key[A-Z]$/.test(code)) return code.slice(3);
   if (/^Digit\d$/.test(code)) return code.slice(5);
   return code;
@@ -222,41 +519,80 @@ function applyKeymaps(km) {
     return opt;
   }));
   $("#profile-delete").disabled = Object.keys(km.profiles).length < 2;
+  const p = activeProfile();
+  $("#opt-hold").checked = !!p.hold_buttons;
+  $("#opt-mouse").checked = !!p.mouse_stick;
   renderKeyTable();
+  renderGamingHint();
+  renderKeycaps();
 }
 
 function renderKeyTable() {
-  const profile = activeProfile();
-  const counts = {};
-  Object.values(profile).forEach((k) => { if (k) counts[k] = (counts[k] || 0) + 1; });
-  const rows = state.buttons.map((button) => {
-    const row = document.createElement("button");
-    row.type = "button";
-    row.className = "key-row" + (counts[profile[button]] > 1 ? " conflict" : "");
-    const name = document.createElement("span");
-    name.textContent = BUTTON_LABELS[button] || button;
-    const key = document.createElement("span");
-    key.className = "key" + (profile[button] ? "" : " unbound");
-    key.textContent = keyLabel(profile[button]);
-    row.append(name, key);
-    row.addEventListener("click", () => startCapture({ kind: "bind", button }));
-    return row;
+  const bindings = activeProfile().bindings;
+  const byAction = {};
+  Object.entries(bindings).forEach(([input, action]) => (byAction[action] = byAction[action] || []).push(input));
+  const groups = ACTION_GROUPS.map(([title, actions]) => {
+    const group = document.createElement("div");
+    group.className = "bind-group";
+    const h = document.createElement("h4");
+    h.textContent = title;
+    const grid = document.createElement("div");
+    grid.className = "bind-grid";
+    actions.filter((a) => state.actions.includes(a)).forEach((action) => {
+      const row = document.createElement("div");
+      row.className = "bind-row";
+      const name = document.createElement("span");
+      name.textContent = ACTION_LABELS[action] || action;
+      const keys = document.createElement("span");
+      keys.className = "bind-keys";
+      (byAction[action] || []).forEach((input) => {
+        const chip = document.createElement("button");
+        chip.type = "button";
+        chip.className = "chip";
+        chip.title = "Click to remove";
+        chip.textContent = keyLabel(input);
+        chip.addEventListener("click", () => { delete bindings[input]; renderKeyTable(); saveKeymaps(); });
+        keys.append(chip);
+      });
+      const add = document.createElement("button");
+      add.type = "button";
+      add.className = "chip add";
+      add.textContent = "+";
+      add.title = `Add a key or mouse input for ${ACTION_LABELS[action] || action}`;
+      add.addEventListener("click", () => startCapture({ kind: "bind", action }));
+      keys.append(add);
+      row.append(name, keys);
+      grid.append(row);
+    });
+    group.append(h, grid);
+    return group;
   });
-  $("#key-table").replaceChildren(...rows);
-  const clashes = Object.keys(counts).filter((k) => counts[k] > 1);
-  const box = $("#key-conflicts");
-  box.hidden = clashes.length === 0;
-  box.textContent = clashes.length ? `Conflicts: ${clashes.map(keyLabel).join(", ")} bound more than once.` : "";
+  $("#key-table").replaceChildren(...groups);
 }
 
 function saveKeymaps() { send({ type: "save_keymaps", keymaps: state.keymaps }); }
 
 function startCapture(capture) {
   state.capture = capture;
-  $("#capture-text").textContent = capture.kind === "bind"
-    ? `Press a key for ${BUTTON_LABELS[capture.button]}…` : "Press a key for the profile hotkey…";
+  const bind = capture.kind === "bind";
+  $("#capture-text").textContent = bind
+    ? `Press a key, click a mouse button or turn the wheel for ${ACTION_LABELS[capture.action]}…`
+    : "Press a key for this hotkey…";
+  $("#capture-sub").textContent = "Esc to cancel";
   $("#capture").hidden = false;
 }
+
+// While binding, the overlay takes mouse buttons and the wheel too.
+$("#capture").addEventListener("mousedown", (e) => {
+  if (!state.capture || state.capture.kind !== "bind") return;
+  e.preventDefault();
+  finishCapture(`Mouse${e.button}`);
+});
+$("#capture").addEventListener("wheel", (e) => {
+  if (!state.capture || state.capture.kind !== "bind" || !e.deltaY) return;
+  e.preventDefault();
+  finishCapture(e.deltaY < 0 ? "WheelUp" : "WheelDown");
+}, { passive: false });
 
 async function finishCapture(code) {
   const capture = state.capture;
@@ -264,30 +600,40 @@ async function finishCapture(code) {
   $("#capture").hidden = true;
   if (code === "Escape") return;
   if (capture.kind === "hotkey") {
-    if (allBoundKeys().has(code)) { log(`${keyLabel(code)} is used in a key map; pick another hotkey.`, "error"); return; }
-    $("#hotkey-capture").dataset.code = code;
-    $("#hotkey-capture").textContent = keyLabel(code);
+    if (/^(Mouse|Wheel)/.test(code)) return;
+    if (allBoundKeys().has(code)) { log(`${keyLabel(code)} is used in a key map; pick another key.`, "error"); return; }
+    const other = $$("[data-setting]");
+    for (const el of other) {
+      if (el !== capture.el && el.dataset.code === code) { log(`${keyLabel(code)} is already the other hotkey.`, "error"); return; }
+    }
+    capture.el.dataset.code = code;
+    capture.el.textContent = keyLabel(code);
     return;
   }
-  if (state.settings && code === state.settings.profile_hotkey) {
-    log(`${keyLabel(code)} is the profile hotkey and can't be bound.`, "error");
+  const hotkeys = state.settings ? [state.settings.profile_hotkey, state.settings.mouse_toggle_key] : [];
+  if (hotkeys.includes(code)) {
+    log(`${keyLabel(code)} is a hotkey (Settings tab) and can't be bound.`, "error");
     return;
   }
-  const profile = activeProfile();
-  const other = Object.keys(profile).find((b) => b !== capture.button && profile[b] === code);
+  if (code.startsWith("Wheel") && !state.buttonSet.has(capture.action)) {
+    log("The mouse wheel can only press buttons.", "error");
+    return;
+  }
+  const bindings = activeProfile().bindings;
+  const other = bindings[code];
+  if (other === capture.action) return;
   if (other) {
     const move = await confirmBox(
-      `${keyLabel(code)} is already bound to ${BUTTON_LABELS[other]}. Move it to ${BUTTON_LABELS[capture.button]}? (${BUTTON_LABELS[other]} will be unbound.)`);
+      `${keyLabel(code)} already does ${ACTION_LABELS[other]}. Move it to ${ACTION_LABELS[capture.action]}?`);
     if (!move) return;
-    profile[other] = "";
   }
-  profile[capture.button] = code;
+  bindings[code] = capture.action;
   renderKeyTable();
   saveKeymaps();
 }
 
 function allBoundKeys() {
-  return new Set(Object.values(state.keymaps.profiles).flatMap((p) => Object.values(p)).filter(Boolean));
+  return new Set(Object.values(state.keymaps.profiles).flatMap((p) => Object.keys(p.bindings)));
 }
 
 function cycleProfile() {
@@ -298,7 +644,7 @@ function cycleProfile() {
 }
 
 function setProfile(name) {
-  releaseAll();
+  if (heldInputs.size || state.held) releaseAllInputs();
   state.keymaps.active = name;
   applyKeymaps(state.keymaps);
   saveKeymaps();
@@ -306,11 +652,25 @@ function setProfile(name) {
 
 $("#profile-select").addEventListener("change", (e) => { setProfile(e.target.value); e.target.blur(); });
 
+$("#opt-hold").addEventListener("change", (e) => {
+  if (heldInputs.size || state.held) releaseAllInputs();
+  activeProfile().hold_buttons = e.target.checked;
+  saveKeymaps();
+  e.target.blur();
+});
+$("#opt-mouse").addEventListener("change", (e) => {
+  activeProfile().mouse_stick = e.target.checked;
+  renderGamingHint();
+  saveKeymaps();
+  e.target.blur();
+});
+
 $("#profile-add").addEventListener("click", async () => {
   const name = await confirmBox("Name for the new profile (copies the current one):", true, "");
   if (!name) return;
   if (state.keymaps.profiles[name]) { log(`A profile called ${name} already exists.`, "error"); return; }
-  state.keymaps.profiles[name] = { ...activeProfile() };
+  const current = activeProfile();
+  state.keymaps.profiles[name] = { ...current, bindings: { ...current.bindings } };
   setProfile(name);
 });
 
@@ -325,6 +685,8 @@ $("#keys-reset").addEventListener("click", async () => {
   if (await confirmBox("Reset all key maps and profiles to the defaults?")) send({ type: "reset_keymaps" });
 });
 
+// Settings ----------------------------------------------------------------------------
+
 function applySettings(s) {
   state.settings = s;
   const form = $("#settings-form");
@@ -333,28 +695,27 @@ function applySettings(s) {
     if (!field) continue;
     if (field.type === "checkbox") field.checked = value; else field.value = value;
   }
-  const hk = $("#hotkey-capture");
-  hk.dataset.code = s.profile_hotkey;
-  hk.textContent = keyLabel(s.profile_hotkey);
+  $$("[data-setting]").forEach((el) => {
+    el.dataset.code = s[el.dataset.setting];
+    el.textContent = keyLabel(s[el.dataset.setting]);
+  });
   $("#hotkey-hint").textContent = `${keyLabel(s.profile_hotkey)} switches keyboard profile.`;
+  renderCaptureState();
 }
 
-$("#hotkey-capture").addEventListener("click", () => startCapture({ kind: "hotkey" }));
+$$("[data-setting]").forEach((el) => el.addEventListener("click", () => startCapture({ kind: "hotkey", el })));
 
 $("#settings-form").addEventListener("submit", (e) => {
   e.preventDefault();
-  const f = e.target.elements;
-  send({
-    type: "save_settings",
-    settings: {
-      press_ms: Number(f.press_ms.value),
-      idle_timeout_min: Number(f.idle_timeout_min.value),
-      repeat_delay_ms: Number(f.repeat_delay_ms.value),
-      repeat_interval_ms: Number(f.repeat_interval_ms.value),
-      safe_connect: f.safe_connect.checked,
-      profile_hotkey: $("#hotkey-capture").dataset.code,
-    },
-  });
+  const settings = {};
+  for (const field of e.target.elements) {
+    if (!field.name) continue;
+    if (field.type === "checkbox") settings[field.name] = field.checked;
+    else if (field.type === "number") settings[field.name] = Number(field.value);
+    else settings[field.name] = field.value;
+  }
+  $$("[data-setting]").forEach((el) => { settings[el.dataset.setting] = el.dataset.code; });
+  send({ type: "save_settings", settings });
 });
 
 function wizardActive() { return !!(state.setup && state.setup.active); }

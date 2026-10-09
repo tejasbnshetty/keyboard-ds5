@@ -121,6 +121,8 @@
   </div>
   <div id="setup-warning" class="banner error" hidden></div>
   <div id="busy" class="banner info" hidden></div>
+  <div id="captured-banner" class="banner ok" hidden>Mouse captured: it moves the right stick.
+    <strong>Esc</strong> or <strong id="captured-key">F1</strong> releases it.</div>
 
   <nav class="tabs" role="tablist">
     <button role="tab" class="tab active" data-tab="remote">Remote</button>
@@ -154,8 +156,13 @@
           </div>
 
           <div class="centre">
+            <button class="btn small" data-button="touchpad">Touchpad</button>
             <button class="btn small" data-button="options">Options</button>
             <button class="btn ps" data-button="ps" aria-label="PS button">PS</button>
+            <div class="pair">
+              <button class="btn small" data-button="l3">L3</button>
+              <button class="btn small" data-button="r3">R3</button>
+            </div>
           </div>
 
           <div class="face">
@@ -174,6 +181,28 @@
       </div>
       <p class="hint">Keyboard works while this window is focused. Hold a direction to scroll.
         <span id="hotkey-hint"></span></p>
+
+      <div class="gaming">
+        <div class="gaming-head">
+          <h3>Gaming</h3>
+          <button id="capture-mouse" class="action">Capture mouse (F1)</button>
+        </div>
+        <div class="viz" aria-label="What's being sent to the PS5">
+          <div class="viz-stick"><div class="viz-ring"><div id="viz-left" class="viz-dot"></div></div>
+            <small>Left stick <span id="viz-left-num" class="num">0.00, 0.00</span></small>
+            <span id="viz-left-keys" class="viz-keys"></span></div>
+          <div class="viz-triggers">
+            <div class="viz-trigger"><div id="viz-l2" class="viz-fill"></div></div>
+            <div class="viz-trigger"><div id="viz-r2" class="viz-fill"></div></div>
+            <small>L2 R2</small>
+          </div>
+          <div class="viz-stick"><div class="viz-ring"><div id="viz-right" class="viz-dot"></div></div>
+            <small>Right stick <span id="viz-right-num" class="num">0.00, 0.00</span></small>
+            <span id="viz-right-keys" class="viz-keys"></span></div>
+        </div>
+        <p id="viz-buttons" class="hint">No buttons held</p>
+        <p id="gaming-hint" class="hint"></p>
+      </div>
     </section>
 
     <section id="tab-keys" class="panel">
@@ -182,10 +211,15 @@
         <button id="profile-delete" class="action danger">Delete profile</button>
         <button id="keys-reset" class="action">Reset to defaults</button>
       </div>
-      <p class="hint">Click a button, then press the key to bind to it. Esc cancels.
-        Changes are saved straight away.</p>
-      <div id="key-table" class="key-table"></div>
-      <div id="key-conflicts" class="banner error" hidden></div>
+      <div class="profile-opts">
+        <label class="check"><input type="checkbox" id="opt-hold"> Gaming profile: buttons stay
+          down while their key is held (off: each press is a tap, and directions repeat)</label>
+        <label class="check"><input type="checkbox" id="opt-mouse"> The captured mouse moves
+          the right stick</label>
+      </div>
+      <p class="hint">Click <strong>+</strong>, then press a key, click a mouse button or turn the
+        wheel to bind it. Click a binding to remove it. Esc cancels. Changes save straight away.</p>
+      <div id="key-table"></div>
     </section>
 
     <section id="tab-settings" class="panel">
@@ -211,8 +245,57 @@
           <small>Wait for the PS5's own session ID (about 1.5 s slower). Only needed if fast connect misbehaves.</small>
         </label>
         <label>Profile hotkey
-          <button type="button" id="hotkey-capture" class="action"></button>
+          <button type="button" id="hotkey-capture" class="action" data-setting="profile_hotkey"></button>
           <small>Cycles through keyboard profiles. Click, then press a key.</small>
+        </label>
+
+        <h3 class="settings-head">Gaming</h3>
+        <label>Mouse capture key
+          <button type="button" id="mouse-key-capture" class="action" data-setting="mouse_toggle_key"></button>
+          <small>Captures and releases the mouse. Esc, switching windows or minimising always release it.</small>
+        </label>
+        <div class="two">
+          <label>Sensitivity X
+            <input type="number" name="mouse_sens_x" min="0.05" max="20" step="0.05" required></label>
+          <label>Sensitivity Y
+            <input type="number" name="mouse_sens_y" min="0.05" max="20" step="0.05" required></label>
+        </div>
+        <small class="under">At 1.0, moving the mouse 2000 counts a second tilts the stick fully.</small>
+        <label>Response curve
+          <select name="mouse_curve">
+            <option value="linear">Linear</option>
+            <option value="exponential">Exponential (finer slow aiming)</option>
+          </select>
+        </label>
+        <div class="two">
+          <label>Outer limit
+            <input type="number" name="mouse_outer_limit" min="0.2" max="1" step="0.05" required></label>
+          <label>Anti-deadzone
+            <input type="number" name="mouse_anti_deadzone" min="0" max="0.6" step="0.01" required></label>
+        </div>
+        <small class="under">Outer limit: the most the stick tilts. Anti-deadzone: the least tilt for any
+          movement, to get past the game's own deadzone (try 0.1 to 0.25 if slow movements do nothing).</small>
+        <div class="two">
+          <label>Smoothing (ms)
+            <input type="number" name="mouse_smoothing_ms" min="20" max="250" step="5" required></label>
+          <label>Return to centre (ms)
+            <input type="number" name="mouse_return_ms" min="0" max="1000" step="10" required></label>
+        </div>
+        <small class="under">Smoothing averages the mouse over this long (higher is steadier, but lags).
+          Return: how fast the stick re-centres once the mouse stops.</small>
+        <label class="check"><input type="checkbox" name="mouse_invert_y"> Invert Y
+          <small>Moving the mouse forward looks down.</small></label>
+        <div class="two">
+          <label>Walk tilt
+            <input type="number" name="walk_tilt" min="0.1" max="1" step="0.05" required></label>
+          <label>Light trigger
+            <input type="number" name="light_trigger" min="0.05" max="1" step="0.05" required></label>
+        </div>
+        <small class="under">How far the left stick tilts while the walk key is held, and how far L2/R2
+          press while the light-trigger key is held (bind both in the Keys tab).</small>
+        <label>Stick updates per second
+          <input type="number" name="stick_hz" min="30" max="125" step="5" required>
+          <small>How often stick positions go to the PS5 (125 at most).</small>
         </label>
         <button type="submit" class="action primary">Save settings</button>
       </form>
@@ -246,7 +329,7 @@
   </div>
 
   <div id="capture" class="modal" hidden>
-    <div class="modal-box"><p id="capture-text">Press a key…</p><small>Esc to cancel</small></div>
+    <div class="modal-box"><p id="capture-text">Press a key…</p><small id="capture-sub">Esc to cancel</small></div>
   </div>
 </body>
 </html>

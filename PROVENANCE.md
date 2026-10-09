@@ -6,10 +6,11 @@ Where this project's code comes from, and what the licences of its sources mean.
 ## How pyremoteplay is used
 
 pyremoteplay 0.7.6 is installed **unmodified** from PyPI (`requirements.txt`).
-We **don't patch the installed package**, **don't vendor a copy**, and **don't monkeypatch** its
-classes. Fixes are made by **subclassing at runtime** (`ps5remote/rpsession.py`,
+This project **doesn't patch the installed package**, **doesn't vendor a copy**, and **doesn't
+monkeypatch** its classes. Fixes are made by **subclassing at runtime** (`ps5remote/rpsession.py`,
 `ps5remote/ps5.py`). Some of those subclass methods are modified copies of pyremoteplay methods,
-listed below.
+listed below. Controller input is sent by this project's own code (`ps5remote/gamepad.py`)
+through pyremoteplay's stream.
 
 ## File by file
 
@@ -20,7 +21,11 @@ listed below.
 | `ps5remote/psn.py` | **Original code.** The redirect URL, scopes and login-URL parameters are Sony's values, taken from chiaki-ng (`gui/include/psnaccountid.h`). The OAuth **client ID/secret are not in the source or the git history**: you supply your own `psn_client.json` (see the README section "PSN sign-in values"). The account-ID encoding (8-byte little-endian, base64) is the same behaviour as pyremoteplay and chiaki-ng, written independently |
 | `ps5remote/ps5.py` | **Original**, except `Device.create_session`, an adapted copy (~10 lines) of pyremoteplay `RPDevice.create_session`. Error-code values are protocol constants also listed in pyremoteplay and chiaki-ng |
 | `ps5remote/rpsession.py` | **Mixed** (see below) |
-| `app_maps.json`, `README.md`, `setup.bat`, `ps5.bat`, `requirements.txt` | **Original** |
+| `ps5remote/gamepad.py` | **Original code.** The button IDs, the two-byte event form (ID + 0x20 while pressed), analog L2/R2 values, newest-first event history, and the 8 ms / 200 ms state intervals are protocol behaviour **looked up** in chiaki-ng (`lib/src/feedback.c`, `feedbacksender.c`). Packets are built with pyremoteplay's `RPStream.send_feedback` and `ControllerState` |
+| `ps5remote/gameinput.py` | **Original** |
+| `tests/*` | **Original** |
+| `app_maps.json`, `psn_client.example.json`, `README.md`, `PROVENANCE.md` | **Original** |
+| `setup.bat`, `app.bat`, `ps5.bat`, `build.bat`, `test.bat`, `run_app.py`, `ps5remote.spec`, `pytest.ini`, `requirements*.txt` | **Original** |
 
 ### `ps5remote/rpsession.py` in detail
 
@@ -56,8 +61,8 @@ which is AGPL-3.0-only.
 ### (a) If you only use it yourself
 
 **No obligations.** GPL and AGPL only apply when you distribute the software, or (AGPL) let
-*other people* use a modified version over a network. Using it yourself, including from your own
-iPhone on your own Wi-Fi, needs nothing.
+*other people* use a modified version over a network. Using it yourself, on your own devices and
+network, needs nothing.
 
 ### (b) If you share or publish the source, or a bundled .exe
 
@@ -66,15 +71,16 @@ This applies to anyone who distributes this project.
 - **The project is AGPL-3.0-only** because the display state machine (and arguably the
   fallback-ID logic) is ported from chiaki-ng, which is AGPL-3.0-only. Anyone distributing it, or
   a modified version, must offer the complete source under AGPL-3.0. That includes offering it to
-  people who use a modified version over a network (for example, if it's served to other
-  people's phones).
+  people who use a modified version over a network (for example, if its web interface is served
+  to other people's devices).
 - **pyremoteplay (GPL-3.0):** the app imports and subclasses it, and a PyInstaller .exe bundles
   it. GPL-3.0 §13 explicitly allows combining GPL-3.0 code with AGPL-3.0 code, so the combined
   work is distributed under AGPL-3.0 with pyremoteplay keeping its own GPL-3.0 terms.
 - **pyps4-2ndscreen (LGPL):** fine, as long as its source is available and it can be replaced.
 - **Not a licence issue, but a risk:** the PSN client ID/secret and the Remote Play protocol are
-  Sony's. Publishing them, or an app using them, may conflict with Sony's terms. The public build
-  (`build.bat public`) leaves them out; the personal build (`PS5Remote-personal.exe`) contains
-  them and must never be distributed.
+  Sony's. Publishing the client values, or an app containing them, may conflict with Sony's
+  terms. This repository doesn't contain them. The public build (`build.bat public`) leaves them
+  out; a personal build (`PS5Remote-personal.exe`) contains the builder's own values and must
+  never be distributed.
 - With any .exe release, include `LICENSE`, this file, and the third-party licence notices of the
   bundled dependencies.

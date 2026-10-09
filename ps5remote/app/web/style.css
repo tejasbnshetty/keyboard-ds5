@@ -177,7 +177,72 @@ code { font-size: 12px; word-break: break-all; color: var(--text); }
 .account h3 { margin: 0 0 6px; font-size: 15px; }
 .pill.personal { background: rgba(229, 72, 77, .2); color: #ff9a9d; }
 
+/* Gaming: capture banner, stick visualiser, bindings */
+.banner.ok { background: rgba(47, 191, 113, .12); border: 1px solid rgba(47, 191, 113, .4); }
+.centre .pair { gap: 6px; }
+.gaming { max-width: 560px; margin: 22px auto 0; border-top: 1px solid #2a2f3e; padding-top: 10px; }
+.gaming-head { display: flex; justify-content: space-between; align-items: center; }
+.gaming-head h3 { margin: 0; font-size: 15px; }
+#capture-mouse.on { background: var(--ok); border-color: var(--ok); color: #08130d; }
+.viz { display: flex; justify-content: center; align-items: flex-end; gap: 28px; margin-top: 12px; }
+.viz-stick { display: grid; justify-items: center; gap: 6px; color: var(--muted); }
+.viz-ring {
+  position: relative; width: 104px; height: 104px; border-radius: 50%;
+  background: var(--raised); border: 1px solid #333a4d;
+}
+.viz-ring::before, .viz-ring::after { content: ""; position: absolute; background: #333a4d; }
+.viz-ring::before { left: 50%; top: 8px; bottom: 8px; width: 1px; }
+.viz-ring::after { top: 50%; left: 8px; right: 8px; height: 1px; }
+.viz-dot {
+  position: absolute; left: 50%; top: 50%; width: 16px; height: 16px; margin: -8px 0 0 -8px;
+  border-radius: 50%; background: var(--accent); z-index: 1;
+  box-shadow: 0 0 8px rgba(79, 124, 255, .6);
+}
+.viz-triggers { display: grid; grid-template-columns: 22px 22px; gap: 6px 8px; justify-items: center; color: var(--muted); }
+.viz-triggers small { grid-column: 1 / -1; }
+.viz-trigger { position: relative; width: 22px; height: 104px; border-radius: 6px; background: var(--raised); border: 1px solid #333a4d; overflow: hidden; }
+.viz-fill { position: absolute; left: 0; right: 0; bottom: 0; height: 0; background: var(--warn); }
+.num { font-family: Consolas, monospace; color: var(--text); }
+#viz-buttons { margin-top: 8px; }
+
+.profile-opts { display: grid; gap: 6px; margin: 12px 0 4px; }
+.profile-opts label, .settings label.check { color: var(--text); }
+.check input { margin-right: 6px; }
+.bind-group h4 { margin: 14px 0 6px; font-size: 13px; color: var(--muted); font-weight: 600; }
+.bind-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 8px; }
+.bind-row {
+  display: flex; justify-content: space-between; align-items: center; gap: 8px;
+  background: var(--raised); border-radius: 8px; padding: 6px 8px 6px 10px; min-height: 38px;
+}
+.bind-keys { display: flex; flex-wrap: wrap; gap: 4px; justify-content: flex-end; }
+.chip {
+  font: 13px Consolas, monospace; color: var(--accent); background: var(--bg);
+  border: 1px solid #333a4d; border-radius: 6px; padding: 2px 7px; cursor: pointer;
+}
+.chip:hover { border-color: var(--danger); color: #ff9a9d; text-decoration: line-through; }
+.chip.add { color: var(--muted); }
+.chip.add:hover { color: var(--text); border-color: var(--accent); text-decoration: none; }
+
+/* Keycaps: what triggers each on-screen button in the current profile */
+.btn { position: relative; }
+.keycap {
+  position: absolute; left: 50%; bottom: -8px; transform: translateX(-50%); z-index: 2;
+  font: 600 10px/1 Consolas, monospace; color: var(--text); background: var(--bg);
+  border: 1px solid #3a4160; border-radius: 4px; padding: 2px 4px;
+  white-space: nowrap; pointer-events: none;
+}
+.keycap[hidden] { display: none; }
+.btn.pressed .keycap { border-color: var(--accent); color: var(--accent); }
+.viz-keys { font: 600 11px/1.2 Consolas, monospace; color: var(--text); min-height: 14px; text-align: center; }
+
+.settings-head { margin: 10px 0 0; font-size: 15px; border-top: 1px solid #2a2f3e; padding-top: 14px; }
+.settings .two { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.settings small.under { margin-top: -8px; }
+
 @media (max-width: 520px) {
+  .viz { gap: 14px; }
+  .viz-ring { width: 84px; height: 84px; }
+  .viz-trigger { height: 84px; }
   .dpad, .face { grid-template: repeat(3, 50px) / repeat(3, 50px); }
   .middle { gap: 6px; }
 }
