@@ -3,7 +3,7 @@
 A small Python server on a Windows PC that controls a PS5 over Sony's Remote Play
 protocol, so an iPhone web page can act as a TV-style remote. No video is decoded.
 
-> **Status:** Windows app (Phase 3), built on the command-line core from Phases 1–2. Watch mode
+> **Status:** Windows app, built on the command-line core. Watch mode
 > is benched. The iPhone page comes later and will reuse the app's web interface.
 > Code origins and licences: [PROVENANCE.md](PROVENANCE.md).
 
@@ -57,7 +57,7 @@ on the PS5's side and can't be fixed from here.
 
 ## Setup
 
-You need **Python 3.11** (already installed on this PC). Check with:
+You need **Python 3.11**. Check with:
 
 ```powershell
 py -3.11 --version
@@ -373,7 +373,6 @@ Checked on 2026-10-09:
 | File permissions on the data and log folders | Only your account, SYSTEM and Administrators (normal) |
 | Dependency vulnerabilities (pip-audit) | None (protobuf upgraded to 5.29.6) |
 | Static code scan (bandit) | 2 low-severity notes, both harmless: Sony's token URL mistaken for a password, and an intentionally ignored error when closing the sign-in window. The client secret is no longer flagged (it's out of the code) |
-| **Windows Firewall** | **Action needed, see below** |
 
 ### Firewall
 
@@ -385,34 +384,17 @@ the firewall doesn't filter.
 - **Tested:** a status check worked from a brand-new program with no firewall rule.
 - **The possible exception:** the **network search** (step 1 of the wizard). It sends a
   broadcast and the PS5 replies directly. Windows normally allows those replies too, but this
-  couldn't be isolated on this PC (see McAfee below). If the search ever finds nothing while
+  couldn't be isolated. If the search ever finds nothing while
   typing the IP address works, add this one narrow rule (PowerShell as administrator, Private
   networks only, replies from your own network only):
 
   ```powershell
-  New-NetFirewallRule -DisplayName "PS5 Remote - PS5 search replies" -Direction Inbound -Action Allow -Profile Private -Protocol UDP -LocalPort 9303 -RemoteAddress LocalSubnet -Program "$env:USERPROFILE\Downloads\remote-ps5\remote-ps5\dist\PS5Remote-personal.exe"
+  New-NetFirewallRule -DisplayName "PS5 Remote - PS5 search replies" -Direction Inbound -Action Allow -Profile Private -Protocol UDP -LocalPort 9303 -RemoteAddress LocalSubnet -Program "$env:USERPROFILE[EXE_LOCATION]"
   ```
 
 **If Windows shows "Windows Security has blocked some features of this app" for PS5Remote:**
 tick **Private networks** only, **untick Public networks**, and click **Allow access**. Clicking
 **Cancel** is also fine: the app works without it, except possibly the network search.
-
-**McAfee is creating rules automatically.** McAfee is registered as this PC's firewall. During
-testing, every new program got a Windows Firewall "Allow" rule for **both Private and Public**
-networks within about 3 seconds, without any prompt. That's how the Public rules below appeared.
-Consider changing McAfee's firewall setting from automatically allowing programs to asking you.
-
-**Rules to remove** (they allow inbound connections on Public networks): your global
-`python.exe` / `pythonw.exe` (which covers *any* Python program), `PS5Remote.exe` in the project
-folder, and two test programs from this session (`fwtest_ps5.exe`, `fwprobe2.exe`). Open
-**PowerShell as administrator** and run:
-
-```powershell
-Get-NetFirewallApplicationFilter | Where-Object { $_.Program -match 'python3?11\\pythonw?\.exe$|remote-ps5\\ps5remote\.exe$|\\fwtest_ps5\.exe$|\\fwprobe2\.exe$' } | Get-NetFirewallRule | Where-Object { $_.Direction -eq 'Inbound' } | Remove-NetFirewallRule
-```
-
-Then set your home Wi-Fi to Private: **Settings → Network & internet → Wi-Fi → your home Wi-Fi
-network → Network profile type → Private**.
 
 ## Benched: Watch mode
 
@@ -449,8 +431,8 @@ Logic tests against a simulated PS5 passed. The real PS5 behaved differently.
 
 ### What was tested and what went wrong
 
-Tested on the real PS5 in the Apple TV app. Reported result: **too many disconnections, and
-not controlled.** Every action costs a full connect/disconnect cycle, each one blanks the
+Tested on the real PS5 in the Apple TV app. Resulted in too many disconnections, and
+did not work as intended. Every action costs a full connect/disconnect cycle, each one blanks the
 picture again, and the ~9 s gap means actions pile up behind countdowns. That made it feel
 unpredictable during playback.
 
