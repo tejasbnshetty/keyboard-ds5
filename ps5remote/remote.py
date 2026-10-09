@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-only
 """A long-lived Remote Play session for sending controller buttons.
 
 Shared by the command line (press / remote) and the phone server. One Remote object keeps one

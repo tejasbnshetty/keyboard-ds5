@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 // PS5 Remote interface. Talks to the local server over one WebSocket (see server.py).
 // Untrusted text is only ever inserted with textContent, never innerHTML.
 "use strict";

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-only
 """Windows app entry point: start the local server, then show it in a pywebview window.
 
   app.bat                    no console window; logs to the log folder

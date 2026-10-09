@@ -1,4 +1,5 @@
 @echo off
+rem SPDX-License-Identifier: AGPL-3.0-only
 rem Build the app into dist\.
 rem   build.bat          personal build: bundles data\psn_client.json (Sony sign-in values)
 rem   build.bat public   no sign-in values bundled (users supply their own psn_client.json)

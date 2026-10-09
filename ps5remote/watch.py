@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-only
 """Watch mode: control a playing video without holding a Remote Play session open.
 
 While a session is open, a streaming app's picture goes black on the TV (tested in Apple TV),

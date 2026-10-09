@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-only
 """Where local settings and secrets live, and reading/writing them.
 
 Data folder:

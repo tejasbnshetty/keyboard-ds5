@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-only
 """First-run setup wizard (server side): find the PS5, sign in to PSN, pair, rest-mode tips.
 
 Safe re-pairing: nothing is written until pairing succeeds. The chosen PS5 and a freshly

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-only
 """Fixes to pyremoteplay's Remote Play session (the library is archived, so we patch by subclassing).
 
 1. Network test ("Senkusha" in chiaki-ng). Before the real stream, pyremoteplay opens a test

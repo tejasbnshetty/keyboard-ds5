@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-only
 """PSN sign-in, used once to learn the account ID that Remote Play pairing needs.
 
 Uses the same OAuth flow, scopes and redirect as chiaki-ng. The access token is used once and

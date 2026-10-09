@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-only
 """PS5 operations built on pyremoteplay: discover, status, pair, wake.
 
 The Remote Play session used for buttons and rest mode lives in remote.py.

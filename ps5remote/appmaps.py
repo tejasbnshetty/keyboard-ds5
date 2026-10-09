@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-only
 """Per-app information from app_maps.json: Watch-mode button maps (benched) and the list of
 streaming apps, used by the Windows app to warn that connecting blacks out their video."""
 from __future__ import annotations

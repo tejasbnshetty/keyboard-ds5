@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-only
 # PyInstaller build recipe. Build with build.bat (personal) or "build.bat public".
 #
 # The .exe keeps its data (settings, key maps, pairing) and logs in %APPDATA%\PS5Remote.

@@ -7,6 +7,13 @@ protocol, so an iPhone web page can act as a TV-style remote. No video is decode
 > is benched. The iPhone page comes later and will reuse the app's web interface.
 > Code origins and licences: [PROVENANCE.md](PROVENANCE.md).
 
+> **Disclaimer:** This is an unofficial, personal project. It is not affiliated with, endorsed
+> by, or supported by Sony Interactive Entertainment. "PlayStation", "PS5" and "Remote Play"
+> are trademarks of Sony Interactive Entertainment Inc. It uses an unofficial implementation of
+> the Remote Play protocol, which may stop working after a firmware update and may be against
+> Sony's terms of service. Use it at your own risk. No PSN sign-in values are included: you
+> supply your own (see "PSN sign-in values").
+
 ## About the library
 
 This uses [pyremoteplay](https://github.com/ktnrg45/pyremoteplay) 0.7.6. The repository is
@@ -291,16 +298,47 @@ that blanks `code=`, `token=`, `pin=` and `client_secret` values and this run's 
 
 ### PSN sign-in values
 
-Sign-in needs Sony's Remote Play OAuth client ID and secret (the public values used by
-open-source Remote Play clients). **They're not in the source code.** The app reads them, in
-this order, from:
-1. the environment variables `PS5REMOTE_PSN_CLIENT_ID` / `PS5REMOTE_PSN_CLIENT_SECRET`
-2. `psn_client.json` in the data folder
-3. `data\psn_client.json` in this project (so `--data-dir` test runs still work)
-4. a personal .exe (see below)
+Signing in to PSN needs an OAuth client ID and secret for Sony's Remote Play sign-in page.
+**This project doesn't include them**: they're not in the source code or the git history. If
+you build from this repository, you supply your own values. Only use values you're entitled to
+use.
 
-`psn_client.example.json` shows the format. `psn_client.json` is gitignored everywhere. Your
-copy is in `data\psn_client.json`.
+**Option 1: a `psn_client.json` file (recommended)**
+
+1. Copy `psn_client.example.json` to a file named `psn_client.json` in your **data folder**:
+   - running from source: `data\psn_client.json` in this project folder (create the `data`
+     folder if needed)
+   - running the .exe: `%APPDATA%\PS5Remote\data\psn_client.json`
+2. Open it and replace the placeholders with your client ID and secret:
+
+   ```json
+   {
+     "client_id": "<your client ID>",
+     "client_secret": "<your client secret>"
+   }
+   ```
+
+   (The `_help` line from the example can stay or go.)
+3. Restart the app. In the setup wizard, the "Sign in with PlayStation" button is then enabled.
+   Without the file, the wizard says "Sign-in isn't configured".
+
+`psn_client.json` is gitignored everywhere, so it won't be committed by accident. Never commit
+or share it.
+
+**Option 2: environment variables** (instead of the file):
+
+```powershell
+$env:PS5REMOTE_PSN_CLIENT_ID = "<your client ID>"
+$env:PS5REMOTE_PSN_CLIENT_SECRET = "<your client secret>"
+.\ps5.bat app
+```
+
+These apply to that PowerShell window only. To set them permanently, use **Settings → System →
+About → Advanced system settings → Environment Variables**.
+
+The app looks for the values in this order: the environment variables, then `psn_client.json`
+in the data folder, then `data\psn_client.json` in this project (so `--data-dir` test runs still
+work), and finally inside a personal .exe (see below).
 
 ### Building the .exe
 
@@ -330,7 +368,7 @@ Checked on 2026-10-09:
 | App server reachable from other devices | **No.** It listens on 127.0.0.1 only (tested from the PC's LAN address) |
 | Controlling it without the session token | **Refused.** The WebSocket needs a random per-run token, the right Origin, and a local Host header. 28 server tests + 30 wizard tests |
 | Credentials in the interface, logs, code, build or .exe | **None.** The account ID, sign-in code and PIN never reach the interface or the logs (tested). The public .exe contains no Sony values |
-| Sony sign-in values in the source | **Removed** (now in gitignored `psn_client.json`). ⚠ They're still in **earlier git commits**: publish from a fresh repository, or rewrite the history first |
+| Sony sign-in values in the source or git history | **None.** You supply your own gitignored `psn_client.json` (see "PSN sign-in values") |
 | Stored PSN access token | **None.** Only the account ID and pairing keys are stored |
 | File permissions on the data and log folders | Only your account, SYSTEM and Administrators (normal) |
 | Dependency vulnerabilities (pip-audit) | None (protobuf upgraded to 5.29.6) |

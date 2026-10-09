@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-only
 """Command-line tool:  .\\ps5.bat <command>
 
   discover        find the PS5 on the network and save its address (or --ip to set it by hand)

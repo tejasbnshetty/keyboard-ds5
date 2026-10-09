@@ -1,4 +1,5 @@
 @echo off
+rem SPDX-License-Identifier: AGPL-3.0-only
 rem Start the PS5 Remote window (no console). Logs go to logs\app.log.
 cd /d "%~dp0"
 if not exist ".venv\Scripts\pythonw.exe" (

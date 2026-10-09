@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-only
 """Remote settings shown on the app's Settings screen, stored under "app" in data/config.json."""
 from __future__ import annotations
 

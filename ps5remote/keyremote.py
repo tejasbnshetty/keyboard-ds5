@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-only
 """Interactive keyboard remote:  .\\ps5.bat remote
 
   BROWSE  live remote: stays connected, full buttons, hold-to-repeat, idle disconnect.

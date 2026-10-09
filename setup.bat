@@ -1,4 +1,5 @@
 @echo off
+rem SPDX-License-Identifier: AGPL-3.0-only
 rem One-time setup: creates the virtual environment and installs pinned dependencies.
 cd /d "%~dp0"
 

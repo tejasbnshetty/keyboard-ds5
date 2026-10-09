@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-only
 """Local web server behind the app window (and, later, the iPhone page).
 
 Serves the HTML/CSS/JS interface and one WebSocket for live control.

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-only
 """Keyboard profiles for the app: each profile maps PS5 buttons to keys.
 
 Keys are browser KeyboardEvent.code values ("ArrowUp", "Enter", "KeyP"...), which name the
