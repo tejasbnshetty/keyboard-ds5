@@ -11,6 +11,7 @@ Events are reported through on_event(kind, message), where kind is one of:
   "dropped"       session lost unexpectedly; the next press reconnects
   "disconnected"  closed on purpose
   "error"         a background action (e.g. hold-to-repeat) failed
+  "display"       the PS5 switched to/from protected content (see protected_content)
 """
 from __future__ import annotations
 
@@ -72,6 +73,14 @@ class Remote:
     def connected(self) -> bool:
         session = self._device.session if self._device else None
         return bool(session and session.is_ready)
+
+    @property
+    def protected_content(self) -> bool | None:
+        """True while the PS5 says it's showing content that can't be streamed (e.g. video
+        playback in a streaming app), False once it says it can show the picture again,
+        None if it hasn't said either since connecting (or not connected)."""
+        session = self._device.session if self._device else None
+        return getattr(session, "protected_content", None)
 
     def _emit(self, kind: str, message: str) -> None:
         _LOGGER.debug("%s: %s", kind, message)
@@ -136,6 +145,9 @@ class Remote:
                 self._watchdog = asyncio.create_task(self._watch())
                 return
             except ps5.PS5Error as err:
+                if "Another Remote Play session" in str(err):
+                    # The PS5 frees a session a few seconds after it ends; worth waiting for.
+                    deadline = max(deadline, start + RETRY_WINDOW)
                 out_of_time = attempt >= 2 and time.monotonic() > deadline
                 if ps5.is_fatal(str(err)) or out_of_time:
                     raise
@@ -150,8 +162,12 @@ class Remote:
         if not device.is_on:
             raise ps5.PS5Error("The PS5 is in rest mode.")
         ps5.require_paired(device, self.user, profiles)
-        if not device.create_session(self.user, profiles=profiles):
+        session = device.create_session(self.user, profiles=profiles)
+        if not session:
             raise ps5.PS5Error("Couldn't create a Remote Play session.")
+        session.on_protected_change = lambda protected: self._emit(
+            "display", "PS5 is showing protected video (picture blanked)" if protected
+            else "PS5 picture is streamable again")
         self._device = device
         try:
             if not await device.connect():

@@ -13,6 +13,7 @@ from pyremoteplay import ddp
 from pyremoteplay.device import RPDevice
 
 from . import config
+from .rpsession import FastSession
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -71,6 +72,19 @@ class Device(RPDevice):
         if data:
             data = {k: v for k, v in data.items() if k != "running-app-titleid"}
         super()._set_status(data)
+
+    def create_session(self, user: str, profiles=None, **_ignored):
+        """Like RPDevice.create_session, but with our patched session (see rpsession.py)."""
+        if self.session and not self.session.is_stopped:
+            _LOGGER.error("Running session already exists. Disconnect first.")
+            return None
+        profile = self.get_profile(user, profiles)
+        if not profile:
+            return None
+        self._session = FastSession(self.host, profile)  # no receiver: video is discarded
+        self.controller.disconnect()
+        self.controller.connect(self._session)
+        return self._session
 
 
 def discover(timeout: int = 3) -> list[dict]:

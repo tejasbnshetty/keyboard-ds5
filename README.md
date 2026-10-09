@@ -26,6 +26,26 @@ Known risks and workarounds:
 | One user reported "Version not accepted" after a 2023 firmware update (issue #22, unanswered) | Not seen here: a full session works on our PS5 |
 | Its standby wait loop has an inverted comparison | We wait for the session to close ourselves |
 | It looks up the running game on the PlayStation Store after each status check | Turned off (`ps5.Device`) |
+| Its network test sends handshake version 7; the PS5 rejects it ("Version not accepted" ×10), then it times out after 3 s | Test skipped; fixed MTU 1454 / RTT 1, chiaki-ng's fallback values (`rpsession.py`) |
+| Its "disconnect" message was never sent (stop-flag ordering bug), and was malformed | Fixed; the PS5 now answers "Client Shutdown" |
+| It waits ~2 s for the PS5's session ID before starting the stream | Uses a chiaki-ng-style fallback ID after 0.3 s (`--safe-connect` turns this off) |
+| It reads only the low byte of control message types and ignores the PS5's "protected content" messages | Full control-message handling (`rpsession.FastSession._handle`) |
+
+All of these patches are in `ps5remote/rpsession.py`, with notes on each.
+
+### Connect time
+
+| Step | Before | Now |
+|---|---|---|
+| Status check + session request + auth | 0.4 s | 0.4 s |
+| Wait for the PS5's session ID | 2.0 s | 0.3 s (fallback ID) |
+| Network test (rejected, then timed out) | 3.0 s | skipped |
+| Stream handshake | 0.05 s | 0.05 s |
+| **Total** | **5.5 s** | **0.6–1.1 s** |
+
+After any session ends, the PS5 takes about **9 seconds** before it accepts a new one. Connects
+during that window are refused as "in use", and the remote retries automatically. This happens
+on the PS5's side and can't be fixed from here.
 
 ## Setup
 
@@ -148,10 +168,26 @@ with `--ms`, for example `.\ps5.bat remote --ms 30` or `.\ps5.bat press cross --
 presses are sometimes ignored, raise it. Repeat speed is set in `ps5remote/remote.py`
 (`REPEAT_DELAY`, `REPEAT_INTERVAL`).
 
+### Detecting video playback
+
+While a streaming app plays protected video, the PS5 can't stream the picture, and it says so
+with a control message. The remote tracks this as `Remote.protected_content` (True = playback,
+False = picture available, None = no message yet) and reports a "display" event when it changes.
+
+To see what your PS5 sends, run:
+
+```powershell
+.\ps5.bat probe-display --seconds 120
+```
+
+Then switch between apps, start and stop playback, and watch the output.
+
 ### How the code is organised
 
 - `ps5remote/remote.py`: the `Remote` class (connect, auto-wake, tap, hold/repeat,
   dropped-session detection, clean disconnect). The phone server reuses this.
+- `ps5remote/rpsession.py`: fixes to pyremoteplay's session (faster connect, working
+  disconnect, control messages, playback signal).
 - `ps5remote/keyremote.py`: the keyboard test mode.
 - `ps5remote/ps5.py`: discovery, status, pairing, wake.
 

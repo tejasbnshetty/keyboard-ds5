@@ -19,7 +19,7 @@ import sys
 import time
 import webbrowser
 
-from . import config, ps5, psn
+from . import config, ps5, psn, rpsession
 from .remote import BUTTONS, DEFAULT_PRESS_MS, Remote
 
 
@@ -202,6 +202,46 @@ def cmd_press(args) -> None:
         pass  # _press has already disconnected in its finally block
 
 
+async def _probe_display(seconds: int) -> None:
+    start = time.monotonic()
+
+    def stamp() -> str:
+        return f"{time.monotonic() - start:6.1f}s"
+
+    remote = Remote(on_event=lambda kind, msg: print(f"{stamp()}  {msg}"))
+    try:
+        await remote.connect(wake=False)
+        session = remote._device.session  # pylint: disable=protected-access
+
+        def on_ctrl(msg_type: int, payload: bytes) -> None:
+            if msg_type in (rpsession.CTRL_HEARTBEAT_REQ, rpsession.CTRL_HEARTBEAT_REP,
+                            rpsession.CTRL_SESSION_ID):
+                return  # routine; the session ID isn't shown
+            print(f"{stamp()}  ctrl message {msg_type:#06x}: {payload[:16].hex(' ')}")
+
+        session.on_ctrl_message = on_ctrl
+        print(f"{stamp()}  Listening for {seconds}s. Switch between apps / play / pause now.")
+        print(f"{stamp()}  Current state: {describe_protected(remote.protected_content)}")
+        while time.monotonic() - start < seconds and remote.connected:
+            await asyncio.sleep(0.2)
+        print(f"{stamp()}  Final state: {describe_protected(remote.protected_content)}")
+    finally:
+        remote.close()
+
+
+def describe_protected(value) -> str:
+    return {None: "no display message yet (treated as normal)",
+            True: "protected video (picture blanked)",
+            False: "streamable picture"}[value]
+
+
+def cmd_probe_display(args) -> None:
+    try:
+        asyncio.run(_probe_display(args.seconds))
+    except KeyboardInterrupt:
+        pass
+
+
 def cmd_remote(args) -> None:
     from . import keyremote  # Windows-only module
     try:
@@ -213,6 +253,8 @@ def cmd_remote(args) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(prog="ps5.bat", description="PS5 phone remote - command line")
     parser.add_argument("-v", "--verbose", action="store_true", help="show more log output")
+    parser.add_argument("--safe-connect", action="store_true",
+                        help="wait for the PS5's own session ID (about 1.5 s slower to connect)")
     sub = parser.add_subparsers(dest="command", required=True)
 
     p = sub.add_parser("discover", help="find the PS5 and save its address")
@@ -236,6 +278,10 @@ def main() -> None:
     p.add_argument("--ms", type=int, default=DEFAULT_PRESS_MS,
                    help=f"how long each press holds the button down (default {DEFAULT_PRESS_MS})")
     p.set_defaults(func=cmd_remote)
+    p = sub.add_parser("probe-display",
+                       help="stay connected and report when the PS5 says it's showing protected video")
+    p.add_argument("--seconds", type=int, default=90)
+    p.set_defaults(func=cmd_probe_display)
 
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO if args.verbose else logging.WARNING,
@@ -244,6 +290,8 @@ def main() -> None:
         logging.getLogger("ps5remote").setLevel(logging.DEBUG)
     ps5.quiet_library_logs(args.verbose)
     ps5.use_windows_event_loop()
+    if args.safe_connect:
+        rpsession.EARLY_SESSION_ID = None
     try:
         args.func(args)
     except ps5.PS5Error as err:
