@@ -36,7 +36,26 @@ def test_source_data_folder_is_a_fallback():
     assert psn._client() == ("bbbbbbbb", "s")
 
 
-@pytest.mark.parametrize("content", ["{bad json", '{"client_id": "x"}', '{"client_secret": "y"}'])
+def test_base64_secret_is_decoded(data_dir):
+    data_dir.mkdir(parents=True)
+    encoded = base64.b64encode(b"plain-secret").decode()
+    (data_dir / "psn_client.json").write_text(
+        json.dumps({"client_id": "cccccccc", "client_secret_base64": encoded}))
+    assert psn._client() == ("cccccccc", "plain-secret")
+
+
+def test_plain_secret_wins_over_base64(data_dir):
+    data_dir.mkdir(parents=True)
+    (data_dir / "psn_client.json").write_text(json.dumps(
+        {"client_id": "cccccccc", "client_secret": "plain", "client_secret_base64": "eHg="}))
+    assert psn._client() == ("cccccccc", "plain")
+
+
+@pytest.mark.parametrize("content", [
+    "{bad json", '{"client_id": "x"}', '{"client_secret": "y"}',
+    '{"client_id": "cccccccc", "client_secret_base64": "not base64!"}',
+    '{"client_id": "cccccccc", "client_secret_base64": 5}',
+])
 def test_incomplete_or_broken_file_is_ignored(data_dir, content):
     data_dir.mkdir(parents=True)
     (data_dir / "psn_client.json").write_text(content)

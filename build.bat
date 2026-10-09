@@ -2,7 +2,8 @@
 rem SPDX-License-Identifier: AGPL-3.0-only
 rem Build the app into dist\.
 rem   build.bat          personal build: bundles data\psn_client.json (Sony sign-in values)
-rem   build.bat public   no sign-in values bundled (users supply their own psn_client.json)
+rem   build.bat public   your psn_client.json is not bundled (users supply their own)
+rem Either way the bundled pyremoteplay library contains its own (unused) copy of the values.
 cd /d "%~dp0"
 if not exist ".venv\Scripts\pyinstaller.exe" (
     echo Run setup.bat first.
@@ -14,7 +15,7 @@ if not exist build mkdir build
 set PS5REMOTE_PERSONAL=0
 if /i "%~1"=="public" goto build
 if not exist "data\psn_client.json" (
-    echo No data\psn_client.json found - making a PUBLIC build without sign-in values.
+    echo No data\psn_client.json found - making a PUBLIC build without your sign-in values.
     goto build
 )
 set PS5REMOTE_PERSONAL=1
@@ -35,7 +36,7 @@ echo.
 if "%PS5REMOTE_PERSONAL%"=="1" (
     echo Built dist\PS5Remote-personal.exe   ^<-- PERSONAL, DO NOT DISTRIBUTE
 ) else (
-    echo Built dist\PS5Remote.exe   ^(public: no sign-in values inside^)
+    echo Built dist\PS5Remote.exe   ^(public: your psn_client.json is not inside^)
 )
 echo The app keeps its data in %%APPDATA%%\PS5Remote. On first run it offers to copy an
 echo existing data folder found next to the .exe or one folder up.
