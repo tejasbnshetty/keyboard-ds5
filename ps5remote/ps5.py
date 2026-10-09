@@ -27,6 +27,11 @@ class PS5Error(Exception):
     pass
 
 
+class SessionBusy(PS5Error):
+    """The PS5 refused a new session because the previous one hasn't been freed yet.
+    It takes ~9 s after any session ends, however cleanly it ended."""
+
+
 # Remote Play rejection codes (RP-Application-Reason) that pyremoteplay doesn't name.
 REJECT_HINTS = {
     0x80108B12: (

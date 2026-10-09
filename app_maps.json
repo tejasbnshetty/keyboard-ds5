@@ -1,0 +1,91 @@
+{
+  "_help": [
+    "Per-app button maps for Watch mode. Edit freely.",
+    "match: text found in the PS5's running-app name (case-insensitive) to pick this map automatically.",
+    "title_ids: optional PS5 title IDs (e.g. PPSA01234) that also pick this map.",
+    "play_pause / back / forward / home: buttons from: up down left right cross circle triangle square options ps l1 r1 l2 r2",
+    "seek_seconds: how far one back/forward press jumps.",
+    "verified: what has actually been tested on a real PS5. Unverified entries are guesses.",
+    "default: map used when the running app isn't recognised (or set 'app' in Watch settings)."
+  ],
+  "default": "appletv",
+  "apps": {
+    "appletv": {
+      "name": "Apple TV",
+      "match": ["apple tv"],
+      "title_ids": [],
+      "play_pause": "cross",
+      "back": "left",
+      "forward": "right",
+      "seek_seconds": 10,
+      "home": "ps",
+      "verified": {"play_pause": true, "seek": false}
+    },
+    "netflix": {
+      "name": "Netflix",
+      "match": ["netflix"],
+      "title_ids": [],
+      "play_pause": "cross",
+      "back": "left",
+      "forward": "right",
+      "seek_seconds": 10,
+      "home": "ps",
+      "verified": {"play_pause": false, "seek": false}
+    },
+    "youtube": {
+      "name": "YouTube",
+      "match": ["youtube"],
+      "title_ids": [],
+      "play_pause": "cross",
+      "back": "left",
+      "forward": "right",
+      "seek_seconds": 10,
+      "home": "ps",
+      "verified": {"play_pause": false, "seek": false}
+    },
+    "disneyplus": {
+      "name": "Disney+",
+      "match": ["disney"],
+      "title_ids": [],
+      "play_pause": "cross",
+      "back": "left",
+      "forward": "right",
+      "seek_seconds": 10,
+      "home": "ps",
+      "verified": {"play_pause": false, "seek": false}
+    },
+    "primevideo": {
+      "name": "Prime Video",
+      "match": ["prime video", "amazon"],
+      "title_ids": [],
+      "play_pause": "cross",
+      "back": "left",
+      "forward": "right",
+      "seek_seconds": 10,
+      "home": "ps",
+      "verified": {"play_pause": false, "seek": false}
+    },
+    "stan": {
+      "name": "Stan",
+      "match": ["stan"],
+      "title_ids": [],
+      "play_pause": "cross",
+      "back": "left",
+      "forward": "right",
+      "seek_seconds": 10,
+      "home": "ps",
+      "verified": {"play_pause": false, "seek": false}
+    },
+    "binge": {
+      "name": "Binge",
+      "match": ["binge"],
+      "title_ids": [],
+      "play_pause": "cross",
+      "back": "left",
+      "forward": "right",
+      "seek_seconds": 10,
+      "home": "ps",
+      "verified": {"play_pause": false, "seek": false}
+    }
+  }
+}

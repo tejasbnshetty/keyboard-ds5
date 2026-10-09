@@ -9,3 +9,9 @@ data/
 # Logs
 logs/
 *.log
+
+# Build output (PyInstaller)
+build/
+dist/
+PS5Remote.exe
+PROVENANCE.md

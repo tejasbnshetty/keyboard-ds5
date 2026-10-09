@@ -19,8 +19,9 @@ import sys
 import time
 import webbrowser
 
-from . import config, ps5, psn, rpsession
+from . import config, ps5, psn, rpsession, watch
 from .remote import BUTTONS, DEFAULT_PRESS_MS, Remote
+from .watch import WatchSettings
 
 
 def ask(prompt: str) -> str:
@@ -99,7 +100,13 @@ def cmd_status(args) -> None:
     }[state]
     print(f"PS5 at {host}: {label}")
     if status.get("running-app-name"):
-        print(f"Running: {status['running-app-name']}")
+        title_id = status.get("running-app-titleid", "")
+        print(f"Running: {status['running-app-name']}" + (f"  (title ID {title_id})" if title_id else ""))
+        try:
+            app_map, why = watch.pick_app_map("auto", status)
+            print(f"Watch-mode button map: {app_map.name} ({why})")
+        except (OSError, ValueError, KeyError) as err:
+            print(f"Couldn't read app_maps.json: {err}")
 
 
 def cmd_login(args) -> None:
@@ -242,12 +249,51 @@ def cmd_probe_display(args) -> None:
         pass
 
 
-def cmd_remote(args) -> None:
-    from . import keyremote  # Windows-only module
+def watch_settings_from_args(args) -> WatchSettings:
+    settings = WatchSettings.load()
+    for name in ("smart_play_s", "smart_pause_s", "post_wait_ms", "collect_ms", "gap_ms", "app"):
+        value = getattr(args, name)
+        if value is not None:
+            setattr(settings, name, value)
+    if args.save_settings:
+        settings.save()
+        print("Watch settings saved to data/config.json.")
+    return settings
+
+
+async def _post_wait_test(press_ms: int, settings: WatchSettings, button: str) -> None:
+    print(
+        "\nPost-press wait test\n--------------------\n"
+        "Start a video playing in the streaming app. Each step sends one press in its own burst,\n"
+        "waits the given time, then disconnects. After each step, say whether the PS5 reacted.\n"
+        "Steps are ~10 s apart because the PS5 needs that long between sessions."
+    )
+    remote = Remote(press_ms=press_ms)
     try:
-        asyncio.run(keyremote.run(args.ms))
+        best = await watch.post_wait_test(remote, settings, button, ask=ask, say=print)
+    finally:
+        remote.close()
+    if best is None:
+        print("No reliable value found. Keep the default, or try a longer press with --ms.")
+    else:
+        suggestion = best + 100 if best < 500 else best
+        print(f"Shortest reliable post-wait: {best} ms. Suggested setting (with margin): {suggestion} ms")
+        print(f"Save it with:  .\\ps5.bat remote --post-wait {suggestion} --save-settings")
+
+
+def cmd_remote(args) -> None:
+    settings = watch_settings_from_args(args)
+    try:
+        if args.post_wait_test:
+            from .keyremote import watch_mode_enabled
+            if not watch_mode_enabled():
+                sys.exit("Watch mode is benched. See README 'Benched: Watch mode' to re-enable it.")
+            asyncio.run(_post_wait_test(args.ms, settings, args.post_wait_test))
+            return
+        from . import keyremote  # Windows-only module
+        asyncio.run(keyremote.run(args.ms, settings))
     except KeyboardInterrupt:
-        pass  # keyremote.run has already disconnected in its finally block
+        pass  # the finally blocks have already disconnected
 
 
 def main() -> None:
@@ -277,6 +323,22 @@ def main() -> None:
     p = sub.add_parser("remote", help="interactive keyboard remote (stays connected)")
     p.add_argument("--ms", type=int, default=DEFAULT_PRESS_MS,
                    help=f"how long each press holds the button down (default {DEFAULT_PRESS_MS})")
+    w = p.add_argument_group("Watch mode settings - BENCHED, only used if enabled in config")
+    w.add_argument("--smart-play", dest="smart_play_s", type=int, choices=[0, 10, 20],
+                   help="skip back this many seconds when resuming from paused (0 = off; default 10)")
+    w.add_argument("--smart-pause", dest="smart_pause_s", type=int, choices=[0, 10, 20],
+                   help="skip back this many seconds after pausing (0 = off; default 0)")
+    w.add_argument("--post-wait", dest="post_wait_ms", type=int, metavar="MS",
+                   help="keep each burst connected this long after the last press (default 300)")
+    w.add_argument("--collect", dest="collect_ms", type=int, metavar="MS",
+                   help="wait this long for more presses before connecting (default 300)")
+    w.add_argument("--gap", dest="gap_ms", type=int, metavar="MS",
+                   help="pause between presses inside one burst (default 150)")
+    w.add_argument("--app", help="button map from app_maps.json, or 'auto' (default)")
+    w.add_argument("--save-settings", action="store_true",
+                   help="save the Watch settings given here as the new defaults")
+    w.add_argument("--post-wait-test", metavar="BUTTON", nargs="?", const="cross",
+                   help="find the shortest reliable post-press wait (sends cross unless given)")
     p.set_defaults(func=cmd_remote)
     p = sub.add_parser("probe-display",
                        help="stay connected and report when the PS5 says it's showing protected video")

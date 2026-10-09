@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>PS5 Remote</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <script src="/static/app.js" defer></script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="status">
+      <span id="power" class="pill">Connecting…</span>
+      <span id="app-name" class="app-name"></span>
+    </div>
+    <div class="link">
+      <span id="link-dot" class="dot" aria-hidden="true"></span>
+      <span id="link-text">Not connected</span>
+    </div>
+  </header>
+
+  <div id="streaming-warning" class="banner warn" hidden>
+    <strong id="streaming-name"></strong> is running. Connecting will black out its video on the
+    TV, so use the remote for its menus only, not during playback.
+  </div>
+  <div id="setup-warning" class="banner error" hidden></div>
+  <div id="busy" class="banner info" hidden></div>
+
+  <nav class="tabs" role="tablist">
+    <button role="tab" class="tab active" data-tab="remote">Remote</button>
+    <button role="tab" class="tab" data-tab="keys">Keys</button>
+    <button role="tab" class="tab" data-tab="settings">Settings</button>
+    <label class="profile-pick">Profile
+      <select id="profile-select" title="Keyboard profile (hotkey cycles)"></select>
+    </label>
+  </nav>
+
+  <main>
+    <!-- Remote -->
+    <section id="tab-remote" class="panel active">
+      <div class="controller">
+        <div class="shoulders">
+          <div class="pair">
+            <button class="btn shoulder" data-button="l2">L2</button>
+            <button class="btn shoulder" data-button="l1">L1</button>
+          </div>
+          <div class="pair">
+            <button class="btn shoulder" data-button="r1">R1</button>
+            <button class="btn shoulder" data-button="r2">R2</button>
+          </div>
+        </div>
+
+        <div class="middle">
+          <div class="dpad">
+            <button class="btn d up" data-button="up" aria-label="Up">▲</button>
+            <button class="btn d left" data-button="left" aria-label="Left">◀</button>
+            <button class="btn d right" data-button="right" aria-label="Right">▶</button>
+            <button class="btn d down" data-button="down" aria-label="Down">▼</button>
+          </div>
+
+          <div class="centre">
+            <button class="btn small" data-button="options">Options</button>
+            <button class="btn ps" data-button="ps" aria-label="PS button">PS</button>
+          </div>
+
+          <div class="face">
+            <button class="btn f triangle" data-button="triangle" aria-label="Triangle">△</button>
+            <button class="btn f square" data-button="square" aria-label="Square">□</button>
+            <button class="btn f circle" data-button="circle" aria-label="Circle">○</button>
+            <button class="btn f cross" data-button="cross" aria-label="Cross">✕</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="actions">
+        <button id="wake" class="action">Wake</button>
+        <button id="rest" class="action danger">Rest mode</button>
+        <button id="disconnect" class="action">Disconnect</button>
+      </div>
+      <p class="hint">Keyboard works while this window is focused. Hold a direction to scroll.
+        <span id="hotkey-hint"></span></p>
+    </section>
+
+    <!-- Keys -->
+    <section id="tab-keys" class="panel">
+      <div class="row">
+        <button id="profile-add" class="action">New profile</button>
+        <button id="profile-delete" class="action danger">Delete profile</button>
+        <button id="keys-reset" class="action">Reset to defaults</button>
+      </div>
+      <p class="hint">Click a button, then press the key to bind to it. Esc cancels.
+        Changes are saved straight away.</p>
+      <div id="key-table" class="key-table"></div>
+      <div id="key-conflicts" class="banner error" hidden></div>
+    </section>
+
+    <!-- Settings -->
+    <section id="tab-settings" class="panel">
+      <form id="settings-form" class="settings" autocomplete="off">
+        <label>Press duration (ms)
+          <input type="number" name="press_ms" min="20" max="1000" step="10" required>
+          <small>How long each press holds the button down. Raise it if presses get missed.</small>
+        </label>
+        <label>Idle disconnect (minutes)
+          <input type="number" name="idle_timeout_min" min="0" max="120" step="0.5" required>
+          <small>Disconnect after this long without a press. 0 = never.</small>
+        </label>
+        <label>Repeat delay (ms)
+          <input type="number" name="repeat_delay_ms" min="100" max="2000" step="10" required>
+          <small>When holding a direction: wait this long before repeating.</small>
+        </label>
+        <label>Repeat interval (ms)
+          <input type="number" name="repeat_interval_ms" min="50" max="1000" step="10" required>
+          <small>Then one press every this many ms.</small>
+        </label>
+        <label class="check">
+          <input type="checkbox" name="safe_connect"> Safe connect
+          <small>Wait for the PS5's own session ID (about 1.5 s slower). Only needed if fast connect misbehaves.</small>
+        </label>
+        <label>Profile hotkey
+          <button type="button" id="hotkey-capture" class="action"></button>
+          <small>Cycles through keyboard profiles. Click, then press a key.</small>
+        </label>
+        <button type="submit" class="action primary">Save settings</button>
+      </form>
+    </section>
+  </main>
+
+  <footer>
+    <ol id="log" class="log" aria-live="polite"></ol>
+  </footer>
+
+  <div id="modal" class="modal" hidden>
+    <div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="modal-text">
+      <p id="modal-text"></p>
+      <input id="modal-input" type="text" maxlength="24" hidden>
+      <div class="row end">
+        <button id="modal-cancel" class="action">Cancel</button>
+        <button id="modal-ok" class="action primary">OK</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="capture" class="modal" hidden>
+    <div class="modal-box"><p id="capture-text">Press a key…</p><small>Esc to cancel</small></div>
+  </div>
+</body>
+</html>

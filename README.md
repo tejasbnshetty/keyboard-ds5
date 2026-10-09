@@ -3,8 +3,9 @@
 A small Python server on a Windows PC that controls a PS5 over Sony's Remote Play
 protocol, so an iPhone web page can act as a TV-style remote. No video is decoded.
 
-> **Status:** Phase 2 (command line: discover, sign in, pair, wake, rest mode, button
-> presses, keyboard remote). The phone UI comes in later phases.
+> **Status:** Windows app (Phase 3), built on the command-line core from Phases 1–2. Watch mode
+> is benched. The iPhone page comes later and will reuse the app's web interface.
+> Code origins and licences: [PROVENANCE.md](PROVENANCE.md).
 
 ## About the library
 
@@ -146,7 +147,15 @@ options ps l1 r1 l2 r2`.
 .\ps5.bat remote
 ```
 
-This stays connected, the same way the phone remote will. Keep the PowerShell window focused.
+Keep the PowerShell window focused. This is the live remote ("Browse mode"), for the home
+screen, games and menus, including menus inside streaming apps. It stays connected and
+disconnects after 2 minutes idle.
+
+**Streaming apps:** while a Remote Play session is open, a playing video in a streaming app goes
+black on the TV. The video keeps playing, and the picture returns about 3 s after disconnecting.
+Menus stay visible. (Tested in the Apple TV app only.) So use the remote for menus there, not
+during playback. A playback mode was tried and benched; see
+[Benched: Watch mode](#benched-watch-mode).
 
 | Key | Button | Key | Button |
 |---|---|---|---|
@@ -156,10 +165,9 @@ This stays connected, the same way the phone remote will. Keep the PowerShell wi
 | Q / E | L1 / R1 | Z / C | L2 / R2 |
 | X or Ctrl+C | Quit and disconnect | | |
 
-- The first key press connects, and wakes the PS5 if needed. Each step is printed with a
-  timestamp, along with how long connecting took.
-- Holding an arrow key presses it once, then repeats after 0.4s at about 6 presses per second.
-- If the session drops, you'll see a `!!` line saying so. The next key press reconnects.
+- The first key press connects, and wakes the PS5 if needed.
+- Holding an arrow key presses it once, then repeats after 0.4 s at about 6 presses per second.
+- If the session drops, you'll see a `!!` line. The next key press reconnects.
 
 ### Press timing
 
@@ -168,19 +176,12 @@ with `--ms`, for example `.\ps5.bat remote --ms 30` or `.\ps5.bat press cross --
 presses are sometimes ignored, raise it. Repeat speed is set in `ps5remote/remote.py`
 (`REPEAT_DELAY`, `REPEAT_INTERVAL`).
 
-### Detecting video playback
+### Playback signal (diagnostic only)
 
-While a streaming app plays protected video, the PS5 can't stream the picture, and it says so
-with a control message. The remote tracks this as `Remote.protected_content` (True = playback,
-False = picture available, None = no message yet) and reports a "display" event when it changes.
-
-To see what your PS5 sends, run:
-
-```powershell
-.\ps5.bat probe-display --seconds 120
-```
-
-Then switch between apps, start and stop playback, and watch the output.
+The PS5 sends a control message when it switches to content it can't stream (protected video)
+and back. The remote tracks it as `Remote.protected_content`, but **nothing relies on it**:
+modes are switched by hand. It hasn't been seen on a real PS5 yet. To look for it, run
+`.\ps5.bat probe-display --seconds 120` during playback.
 
 ### How the code is organised
 
@@ -188,8 +189,151 @@ Then switch between apps, start and stop playback, and watch the output.
   dropped-session detection, clean disconnect). The phone server reuses this.
 - `ps5remote/rpsession.py`: fixes to pyremoteplay's session (faster connect, working
   disconnect, control messages, playback signal).
-- `ps5remote/keyremote.py`: the keyboard test mode.
+- `ps5remote/watch.py`: Watch mode, **benched** (bursts, batching, the 9 s countdown, smart play/pause,
+  app maps, post-wait test). Reusable by the Windows app.
+- `ps5remote/keyremote.py`: keyboard front end only (key mapping and printing).
+- `ps5remote/app/`: the Windows app (`server.py` web server, `main.py` window, `web/` interface).
+- `ps5remote/settings.py`, `ps5remote/keymaps.py`: app settings and keyboard profiles.
+- `ps5remote/appmaps.py`: reads `app_maps.json` (streaming-app list, benched Watch-mode maps).
+- `app_maps.json`: per-app button maps for Watch mode.
 - `ps5remote/ps5.py`: discovery, status, pairing, wake.
+
+## Windows app
+
+A window with the remote, keyboard control, key remapping, profiles and settings. Do the Phase 1
+setup (discover, login, pair) first.
+
+```powershell
+.\setup.bat      # once more, to install the app's extra packages
+.\app.bat        # opens the window (no console). Logs: logs\app.log
+```
+
+**Remote tab**
+- **Status bar:** PS5 power (On / Asleep / Not reachable), the running app or game, and a
+  connected indicator.
+- **On-screen buttons:** the controller's buttons. Hold a direction to scroll.
+- **Wake** and **Rest mode** (asks for confirmation), plus a **Disconnect** button.
+- **Keyboard:** works while the window is focused, using the current profile's keys. It stays
+  connected, repeats a held direction, and disconnects when idle (2 minutes by default). When
+  the PS5 is still freeing the last session, a blue bar shows "you can connect in N s".
+- **Streaming apps:** when the running app is in `app_maps.json` (Apple TV, Netflix, YouTube,
+  etc.), a yellow note warns that connecting will black out its video.
+
+**Keys tab:** click a button, then press a key to bind it. If the key is already used, it offers
+to move it. Changes save straight away to `data\keymaps.json`. You can add and delete profiles,
+and **Reset to defaults** restores the two built-in profiles: "Menus" (the command-line keys)
+and "Games" (WASD + IJKL).
+
+**Profiles:** switch with the dropdown, or with the profile hotkey (**F2** by default).
+
+**Settings tab:** press duration, idle timeout (0 = never), hold-repeat delay and speed, safe
+connect, and the profile hotkey. Saved in `data\config.json`.
+
+### Building the .exe
+
+```powershell
+.\build.bat
+```
+
+This creates `dist\PS5Remote.exe`, a single 20 MB file with no console window. It reads its
+settings and pairing from a `data` folder **next to the .exe**. So either move the .exe into this
+project folder, or copy `data` next to it. The `data` folder is never bundled into the .exe
+(checked). Don't share the `data` folder.
+
+### How the app works
+
+`ps5remote/app/server.py` runs a small web server on **127.0.0.1 only**. The window
+(`ps5remote/app/main.py`, pywebview with Edge WebView2) shows the page from
+`ps5remote/app/web/`. Buttons and keys travel over one WebSocket. The same page is meant to be
+served to the iPhone later.
+
+## Security
+
+Checked on 2026-10-09:
+
+| Check | Result |
+|---|---|
+| App server reachable from other devices | **No.** It listens on 127.0.0.1 only (tested from the PC's LAN address) |
+| Controlling it without the session token | **Refused.** The WebSocket needs a random per-run token, the right Origin, and a local Host header (blocks other websites and DNS rebinding). 28 automated tests |
+| Credentials in the interface, logs, code, build or .exe | **None.** Every project file, the logs, `build\` and `PS5Remote.exe` were scanned for the actual values |
+| Stored PSN access token | **None.** Only the account ID and pairing keys are stored, in `data\profiles.json` |
+| File permissions on `data\` and `logs\` | Only your account, SYSTEM and Administrators (normal; no "Users" or "Everyone") |
+| `data\` in git | Ignored and never committed |
+| Dependency vulnerabilities (pip-audit) | protobuf 4.25.9 had one (a JSON-parsing DoS this app never uses). Upgraded to 5.29.6 and re-tested with the PS5. Now: none |
+| Static code scan (bandit) | 2 low-severity notes: Sony's public Remote Play client secret, and a URL it mistakes for a password. Both expected |
+| **Windows Firewall** | **Action needed, see below** |
+
+### Firewall: rules to remove
+
+Windows has **inbound "Allow" rules on the Public profile** for your global `python.exe` /
+`pythonw.exe` (which covers *any* Python program) and for `PS5Remote.exe`. They're created when
+someone clicks "Allow" on a Windows Defender prompt. Your Wi-Fi is also set to **Public**.
+Together, that lets any Python program accept connections on any public network you join.
+
+The app only needs these for the PS5 search; status, connecting and buttons work without them.
+To remove them, open **PowerShell as administrator** (Start → type "PowerShell" → right-click →
+Run as administrator) and run:
+
+```powershell
+Get-NetFirewallApplicationFilter | Where-Object { $_.Program -match 'python3?11\\pythonw?\.exe$|remote-ps5\\ps5remote\.exe$' } | Get-NetFirewallRule | Where-Object { $_.Direction -eq 'Inbound' -and $_.Profile -match 'Public' } | Remove-NetFirewallRule
+```
+
+Then set your home Wi-Fi to Private: **Settings → Network & internet → Wi-Fi → your home Wi-Fi network →
+Network profile type → Private**. If Windows asks again, tick **Private networks only**.
+
+## Benched: Watch mode
+
+**Status: benched (disabled).** The code is kept but switched off. It reappears only when
+`data/config.json` contains `"features": {"watch_mode": true}`: then **M** toggles it in
+`.\ps5.bat remote`, and `--post-wait-test` works.
+
+### What it was for
+
+Controlling a playing video without the picture going black. Holding a Remote Play session open
+blanks streaming-app video on the TV (Apple TV app), so Watch mode never held one: each action
+connected, pressed, and disconnected straight away.
+
+### What was built
+
+- **Bursts** (`ps5remote/watch.py`, plus `Remote.open_burst` / `press` / `end_burst` in
+  `remote.py`). Each burst prints a timing breakdown.
+- **Batching:** a 300 ms collect window before connecting. Presses made during a burst joined it.
+- **The PS5's ~9 s reconnect gap:** predicted from when the last session ended
+  (`Remote.free_in`), with a "sending in N s" countdown and automatic sending. Pressing
+  play/pause again before it was sent cancelled both.
+- **Play/pause:** a best-guess PLAYING/PAUSED state on top of the Cross toggle.
+- **Smart play:** resuming from paused skipped back 10 or 20 s first. Smart pause had an
+  optional skip-back.
+- **Seeks:** 10 s with Left/Right, 30 s with Shift+arrows or `[` `]`.
+- **Home:** H pressed PS, then returned to Browse mode.
+- **Per-app button maps** (`app_maps.json`), picked from the running-app name. Apple TV
+  play/pause was confirmed; everything else is unverified.
+- **Post-press wait test:** `--post-wait-test` swept the wait from 600 ms down to 0 ms.
+- Settings flags (`--smart-play`, `--smart-pause`, `--post-wait`, `--collect`, `--gap`,
+  `--app`, `--save-settings`), stored under `"watch"` in `data/config.json`.
+
+Logic tests against a simulated PS5 passed. The real PS5 behaved differently.
+
+### What was tested and what went wrong
+
+Tested on the real PS5 in the Apple TV app. Reported result: **too many disconnections, and
+not controlled.** Every action costs a full connect/disconnect cycle, each one blanks the
+picture again, and the ~9 s gap means actions pile up behind countdowns. That made it feel
+unpredictable during playback.
+
+### Ideas to revisit
+
+- **Fewer cycles:** keep one burst session open for a few seconds after an action, so follow-up
+  presses reuse it, and accept a short blackout instead of many.
+- **Only play/pause plus a long seek:** fewer, more predictable actions instead of fine seeking.
+- **A clearer state machine in the UI:** show "connecting / sending / picture returning /
+  locked for N s" so it never feels uncontrolled.
+- **Another control path:** HDMI-CEC from the TV, or the streaming app's own phone remote
+  (if it has one), wouldn't blank the picture at all.
+- **Re-measure the reconnect gap** on newer PS5 firmware. If it shrinks, bursts get much more
+  usable.
+- **Playback detection:** `Remote.protected_content` (the PS5's "can't display" control message)
+  is still tracked but unused. It could drive automatic switching once confirmed on a real PS5.
 
 ## Your saved settings and secrets
 

@@ -19,9 +19,10 @@ if not exist ".venv\Scripts\python.exe" (
 echo Installing dependencies ...
 ".venv\Scripts\python.exe" -m pip install --quiet --upgrade pip || goto :error
 ".venv\Scripts\python.exe" -m pip install --quiet --no-deps --prefer-binary -r requirements.txt || goto :error
+".venv\Scripts\python.exe" -m pip install --quiet --prefer-binary -r requirements-app.txt || goto :error
 
 echo.
-echo Setup complete. Next:  .\ps5.bat discover
+echo Setup complete. Next:  .\ps5.bat discover   (then app.bat for the window)
 exit /b 0
 
 :error
