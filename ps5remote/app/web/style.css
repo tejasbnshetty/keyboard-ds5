@@ -145,6 +145,40 @@ footer { padding: 6px 16px 10px; }
 #capture .modal-box { text-align: center; }
 #capture-text { font-size: 18px; }
 
+/* Setup wizard: while active it replaces the remote */
+body.wizard-on .tabs, body.wizard-on main, body.wizard-on #streaming-warning,
+body.wizard-on #setup-warning, body.wizard-on #busy { display: none; }
+.wizard { flex: 1; overflow: auto; padding: 12px 16px; max-width: 640px; width: 100%; margin: 0 auto; }
+.wizard h1 { font-size: 20px; margin: 4px 0 10px; }
+.wizard h2 { font-size: 17px; margin: 14px 0 6px; }
+.wiz-progress { display: flex; gap: 6px; list-style: none; padding: 0; margin: 0 0 6px; flex-wrap: wrap; }
+.wiz-progress li { padding: 4px 10px; border-radius: 999px; background: var(--raised); color: var(--muted); font-size: 13px; }
+.wiz-progress li.done { color: var(--ok); }
+.wiz-progress li.current { background: var(--accent); color: #fff; }
+.wiz-progress li.skipped { display: none; }
+.wiz-step { display: none; }
+.wiz-step.active { display: block; }
+.wiz-nav { display: flex; gap: 8px; margin-top: 22px; align-items: center; }
+.wiz-nav .spacer { flex: 1; }
+.choice-list { display: grid; gap: 6px; margin: 12px 0; }
+.choice { text-align: left; }
+.choice.selected { border-color: var(--accent); }
+.manual summary { cursor: pointer; color: var(--muted); margin-top: 8px; }
+.hint-left { color: var(--muted); font-size: 13px; }
+.hint-inline { color: var(--muted); font-size: 13px; margin-left: 6px; }
+.small { font-size: 12px; }
+.ok-line { color: var(--ok); font-weight: 600; }
+.steps { padding-left: 20px; }
+.paste { margin-top: 8px; }
+.paste input, #wiz-ip { flex: 1; min-width: 0; }
+.link-btn { background: none; border: 0; color: var(--accent); cursor: pointer; padding: 6px 0; font: inherit; display: block; }
+code { font-size: 12px; word-break: break-all; color: var(--text); }
+.wizard input[type="text"] { user-select: text; -webkit-user-select: text; }
+#wiz-pin { width: 140px; font-size: 20px; letter-spacing: 3px; font-family: Consolas, monospace; }
+.account { margin-top: 28px; border-top: 1px solid #2a2f3e; padding-top: 12px; max-width: 560px; }
+.account h3 { margin: 0 0 6px; font-size: 15px; }
+.pill.personal { background: rgba(229, 72, 77, .2); color: #ff9a9d; }
+
 @media (max-width: 520px) {
   .dpad, .face { grid-template: repeat(3, 50px) / repeat(3, 50px); }
   .middle { gap: 6px; }

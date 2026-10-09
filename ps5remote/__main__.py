@@ -121,9 +121,13 @@ def cmd_login(args) -> None:
         "3. Click the address bar, copy the whole address (Ctrl+L, then Ctrl+C) and paste it here.\n"
         "   Be quick: the code expires after a minute or two.\n"
     )
+    try:
+        url = psn.login_url()
+    except psn.PSNError as err:
+        sys.exit(str(err))
     print("If the browser doesn't open, copy this link into it yourself:\n")
-    print(psn.LOGIN_URL + "\n")
-    webbrowser.open(psn.LOGIN_URL)
+    print(url + "\n")
+    webbrowser.open(url)
     pasted = ask("Paste the redirect address here: ")
     try:
         online_id, account_id = psn.fetch_account(psn.extract_code(pasted))
@@ -296,6 +300,12 @@ def cmd_remote(args) -> None:
         pass  # the finally blocks have already disconnected
 
 
+def cmd_app(args) -> None:
+    from .app.main import run
+    run(debug=args.debug, browser=args.browser, setup=args.setup, data_dir=args.data_dir,
+        console=True)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(prog="ps5.bat", description="PS5 phone remote - command line")
     parser.add_argument("-v", "--verbose", action="store_true", help="show more log output")
@@ -340,6 +350,13 @@ def main() -> None:
     w.add_argument("--post-wait-test", metavar="BUTTON", nargs="?", const="cross",
                    help="find the shortest reliable post-press wait (sends cross unless given)")
     p.set_defaults(func=cmd_remote)
+    p = sub.add_parser("app", help="open the app window with live logs in this terminal")
+    p.add_argument("--debug", action="store_true", help="verbose logs + devtools (right-click > Inspect)")
+    p.add_argument("--browser", action="store_true", help="use your default browser instead of the window")
+    p.add_argument("--setup", action="store_true",
+                   help="show the setup wizard even if paired (existing pairing kept until the new one works)")
+    p.add_argument("--data-dir", help="use another data folder, e.g. a temporary one for testing setup")
+    p.set_defaults(func=cmd_app)
     p = sub.add_parser("probe-display",
                        help="stay connected and report when the PS5 says it's showing protected video")
     p.add_argument("--seconds", type=int, default=90)

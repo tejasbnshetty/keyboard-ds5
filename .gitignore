@@ -10,8 +10,12 @@ data/
 logs/
 *.log
 
-# Build output (PyInstaller)
+# Sony sign-in values: personal, never publish (see psn_client.example.json)
+psn_client.json
+
+# Build output (PyInstaller). Personal builds contain the Sony sign-in values.
 build/
 dist/
 PS5Remote.exe
+*-personal.exe
 PROVENANCE.md

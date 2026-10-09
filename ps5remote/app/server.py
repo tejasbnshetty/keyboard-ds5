@@ -32,6 +32,7 @@ from pathlib import Path
 from aiohttp import WSMsgType, web
 
 from .. import appmaps, config, keymaps, ps5, rpsession
+from .wizard import SetupWizard
 from ..remote import BUTTONS, REPEATABLE, Remote
 from ..settings import AppSettings
 
@@ -47,7 +48,8 @@ CSP = ("default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' 
 
 
 class AppServer:
-    def __init__(self, host: str = "127.0.0.1", port: int = 0):
+    def __init__(self, host: str = "127.0.0.1", port: int = 0, open_login=None,
+                 force_setup: bool = False):
         self.host = host
         self.port = port
         self.token = secrets.token_urlsafe(32)
@@ -63,10 +65,14 @@ class AppServer:
         self._runner: web.AppRunner | None = None
         self._poller: asyncio.Task | None = None
         self._make_remote()
+        self.wizard = SetupWizard(self, open_login, force=force_setup)
 
     # ---- setup -----------------------------------------------------------------------------
 
     def _make_remote(self) -> None:
+        if not config.is_paired():
+            self.remote, self.setup_error = None, "Not set up yet."
+            return
         try:
             self.remote = Remote(press_ms=self.settings.press_ms, on_event=self._on_remote_event)
         except ps5.PS5Error as err:
@@ -82,6 +88,32 @@ class AppServer:
             self.remote.idle_timeout = s.idle_timeout_min * 60 or None
             self.remote.repeat_delay = s.repeat_delay_ms / 1000
             self.remote.repeat_interval = s.repeat_interval_ms / 1000
+
+    def reload_remote(self) -> None:
+        """After pairing (or copying old data): start using the new pairing."""
+        if self.remote:
+            self.remote.close()
+        self._make_remote()
+        self._spawn(self._refresh_and_push())
+
+    def forget_pairing(self) -> None:
+        """Sign out: delete pairing keys, account ID and PS5 address. Keeps settings/key maps."""
+        if self.remote:
+            self.remote.close()
+        self.remote, self.setup_error = None, "Not set up yet."
+        if config.PROFILES_FILE.exists():
+            config.PROFILES_FILE.unlink()
+        config.remove_keys("ps5_host", "psn_user")
+        self._status.update(power="unknown", app="", streaming_app="")
+
+    async def _refresh_and_push(self) -> None:
+        await self._refresh_status()
+        await self._push_status()
+
+    @staticmethod
+    def build_info() -> dict:
+        personal = config.FROZEN and (config.RESOURCES / "PERSONAL_BUILD.txt").exists()
+        return {"personal": personal, "frozen": config.FROZEN}
 
     @property
     def url(self) -> str:
@@ -165,11 +197,16 @@ class AppServer:
 
     async def _handle(self, ws: web.WebSocketResponse, data: dict) -> None:
         kind = data.get("type")
+        if not isinstance(kind, str):
+            return await self._send(ws, {"type": "error", "message": "Unknown message"})
         if kind == "hello":
             await self._send(ws, {"type": "init", "settings": self.settings.to_dict(),
                                   "keymaps": self.keymaps, "buttons": list(BUTTONS),
-                                  "repeatable": sorted(REPEATABLE)})
+                                  "repeatable": sorted(REPEATABLE), "build": self.build_info()})
+            await self._send(ws, {"type": "setup", **self.wizard.public_state()})
             await self._send(ws, {"type": "status", **self._status_payload()})
+        elif kind.startswith("setup_") or kind in ("migrate", "forget_all"):
+            await self.wizard.handle(kind, data)
         elif kind in ("press", "hold", "release"):
             button = data.get("button")
             if button not in BUTTONS:
@@ -195,8 +232,8 @@ class AppServer:
         elif kind == "reset_keymaps":
             self.keymaps = keymaps.defaults()
             keymaps.save(self.keymaps)
-            await self._broadcast({"type": "keymaps", "keymaps": self.keymaps})
-            await self._event("info", "Key maps reset to defaults.")
+            await self.broadcast({"type": "keymaps", "keymaps": self.keymaps})
+            await self.event("info", "Key maps reset to defaults.")
         else:
             await self._send(ws, {"type": "error", "message": "Unknown message"})
 
@@ -218,7 +255,7 @@ class AppServer:
         try:
             return await action
         except ps5.PS5Error as err:
-            await self._event("error", str(err))
+            await self.event("error", str(err))
         finally:
             self._status["busy"] = ""
             await self._push_status()
@@ -227,7 +264,7 @@ class AppServer:
         try:
             await self._need_remote().tap(button)
         except ps5.PS5Error as err:
-            await self._event("error", str(err))
+            await self.event("error", str(err))
 
     async def _hold(self, button: str) -> None:
         self._held = button
@@ -238,7 +275,7 @@ class AppServer:
                 await remote.stop_hold()
         except ps5.PS5Error as err:
             self._held = None
-            await self._event("error", str(err))
+            await self.event("error", str(err))
 
     async def _release(self, button: str | None = None) -> None:
         if button is None or self._held == button:
@@ -249,16 +286,16 @@ class AppServer:
     async def _wake(self) -> None:
         async def go():
             woke = await self._need_remote().wake()
-            await self._event("info", "PS5 is awake." if woke else "PS5 was already awake.")
+            await self.event("info", "PS5 is awake." if woke else "PS5 was already awake.")
         await self._guarded(go(), "Waking the PS5...")
         await self._refresh_status()
 
     async def _rest(self) -> None:
         async def go():
             if await self._need_remote().standby():
-                await self._event("info", "Rest mode requested.")
+                await self.event("info", "Rest mode requested.")
             else:
-                await self._event("info", "The PS5 is already asleep.")
+                await self.event("info", "The PS5 is already asleep.")
         await self._guarded(go(), "Putting the PS5 into rest mode...")
         await self._refresh_status()
 
@@ -268,12 +305,12 @@ class AppServer:
             if new.profile_hotkey in self._all_bound_keys():
                 raise ValueError(f"{new.profile_hotkey} is already used in a key map.")
         except ValueError as err:
-            return await self._event("error", f"Settings not saved: {err}")
+            return await self.event("error", f"Settings not saved: {err}")
         self.settings = new
         new.save()
         self._apply_settings()
-        await self._broadcast({"type": "settings", "settings": new.to_dict()})
-        await self._event("info", "Settings saved.")
+        await self.broadcast({"type": "settings", "settings": new.to_dict()})
+        await self.event("info", "Settings saved.")
 
     def _all_bound_keys(self) -> set[str]:
         return {k for p in self.keymaps["profiles"].values() for k in p.values() if k}
@@ -282,19 +319,19 @@ class AppServer:
         try:
             clean = keymaps.validate(data, {self.settings.profile_hotkey})
         except ValueError as err:
-            return await self._event("error", f"Key maps not saved: {err}")
+            return await self.event("error", f"Key maps not saved: {err}")
         self.keymaps = clean
         keymaps.save(clean)
-        await self._broadcast({"type": "keymaps", "keymaps": clean})
+        await self.broadcast({"type": "keymaps", "keymaps": clean})
 
     # ---- status ----------------------------------------------------------------------------
 
     def _on_remote_event(self, kind: str, message: str) -> None:
-        self._spawn(self._event(kind, message))
+        self._spawn(self.event(kind, message))
         self._spawn(self._push_status())
 
-    async def _event(self, kind: str, message: str) -> None:
-        await self._broadcast({"type": "event", "kind": kind, "message": message,
+    async def event(self, kind: str, message: str) -> None:
+        await self.broadcast({"type": "event", "kind": kind, "message": message,
                                "time": time.strftime("%H:%M:%S")})
 
     def _status_payload(self) -> dict:
@@ -307,7 +344,7 @@ class AppServer:
         return s
 
     async def _push_status(self) -> None:
-        await self._broadcast({"type": "status", **self._status_payload()})
+        await self.broadcast({"type": "status", **self._status_payload()})
 
     async def _refresh_status(self) -> None:
         if not self.remote:
@@ -332,7 +369,7 @@ class AppServer:
                 payload = self._status_payload()
                 if payload != last_sent:
                     last_sent = payload
-                    await self._broadcast({"type": "status", **payload})
+                    await self.broadcast({"type": "status", **payload})
             except Exception:  # pylint: disable=broad-except
                 _LOGGER.exception("Status poll failed")
             await asyncio.sleep(TICK_S)
@@ -343,7 +380,7 @@ class AppServer:
         if not ws.closed:
             await ws.send_str(json.dumps(payload))
 
-    async def _broadcast(self, payload: dict) -> None:
+    async def broadcast(self, payload: dict) -> None:
         for ws in list(self.clients):
             try:
                 await self._send(ws, payload)

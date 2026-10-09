@@ -1,0 +1,5 @@
+{
+  "_help": "Copy to data/psn_client.json (never commit it) and fill in the Remote Play OAuth client values. See README 'PSN sign-in values'.",
+  "client_id": "00000000-0000-0000-0000-000000000000",
+  "client_secret": "replace-me"
+}

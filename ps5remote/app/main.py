@@ -1,42 +1,156 @@
-"""Windows app entry point: start the local server, then open it in a pywebview window.
+"""Windows app entry point: start the local server, then show it in a pywebview window.
 
-Run with app.bat (no console window), or `python -m ps5remote.app` to see log output.
+  app.bat                    no console window; logs to the log folder
+  .\\ps5.bat app [options]   same, with live logs in the terminal
+  PS5Remote.exe [options]    the packaged app
+
+Options: --debug (verbose logs + devtools), --browser (default browser instead of the window),
+--setup (force the setup wizard), --data-dir DIR (use another data folder, e.g. for testing).
 """
 from __future__ import annotations
 
+import argparse
 import asyncio
 import logging
 import logging.handlers
+import re
 import sys
 import threading
+import time
+import webbrowser
 
-from .. import config, ps5
+from .. import config, ps5, psn
 from .server import AppServer
 
 _LOGGER = logging.getLogger(__name__)
 
 
-def setup_logging() -> None:
-    config.LOG_DIR.mkdir(exist_ok=True)
-    handler = logging.handlers.RotatingFileHandler(
-        config.LOG_DIR / "app.log", maxBytes=512_000, backupCount=2, encoding="utf-8")
-    handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
+class Redact(logging.Filter):
+    """Last line of defence: scrub sign-in codes, tokens, PINs and secrets from every log line."""
+
+    PATTERN = re.compile(
+        r"(?i)\b(code|token|access_token|refresh_token|client_secret|pin)(['\"]?\s*[:=]\s*['\"]?)([^&\s'\",}]+)")
+
+    def __init__(self):
+        super().__init__()
+        self.extra: list[str] = []   # exact values to hide (e.g. this run's session token)
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        try:
+            message = record.getMessage()
+        except Exception:  # pylint: disable=broad-except
+            return True
+        clean = self.PATTERN.sub(r"\1\2<redacted>", message)
+        for value in self.extra:
+            clean = clean.replace(value, "<redacted>")
+        if clean != message:
+            record.msg, record.args = clean, ()
+        return True
+
+
+def setup_logging(debug: bool, console: bool) -> Redact:
+    config.LOG_DIR.mkdir(parents=True, exist_ok=True)
+    redact = Redact()
+    fmt = logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s")
+    handlers = [logging.handlers.RotatingFileHandler(
+        config.LOG_DIR / "app.log", maxBytes=512_000, backupCount=2, encoding="utf-8")]
+    if console and sys.stderr:
+        handlers.append(logging.StreamHandler())
     root = logging.getLogger()
-    root.setLevel(logging.INFO)
-    root.addHandler(handler)
-    if sys.stderr and not getattr(sys, "frozen", False):
-        root.addHandler(logging.StreamHandler())
-    ps5.quiet_library_logs()                         # pyremoteplay logs keys at DEBUG
-    logging.getLogger("aiohttp.access").disabled = True  # URLs carry the session token
+    for old in list(root.handlers):  # e.g. ps5.bat's basicConfig handler: no redaction on it
+        root.removeHandler(old)
+    root.setLevel(logging.DEBUG if debug else logging.INFO)
+    for handler in handlers:
+        handler.setFormatter(fmt)
+        handler.addFilter(redact)
+        root.addHandler(handler)
+    # pyremoteplay logs pairing keys at DEBUG: never below INFO, even with --debug.
+    ps5.quiet_library_logs(verbose=debug)
+    logging.getLogger("aiohttp.access").disabled = True  # request URLs carry the token
+    for noisy in ("urllib3", "asyncio", "pythonnet", "clr_loader"):
+        logging.getLogger(noisy).setLevel(logging.INFO if debug else logging.WARNING)
+    return redact
 
 
-def main() -> None:
+def make_login_opener(webview):
+    """Open Sony's sign-in page in an app window and catch the redirect automatically."""
+
+    def open_login(url: str, on_result) -> None:
+        window = webview.create_window("Sign in to PlayStation Network", url,
+                                       width=520, height=760)
+        done = threading.Event()
+
+        def finish(value):
+            if not done.is_set():
+                done.set()
+                on_result(value)
+
+        def watch():
+            while not done.is_set():
+                try:
+                    current = window.get_current_url()
+                except Exception:  # pylint: disable=broad-except
+                    current = None
+                if psn.is_redirect(current):
+                    finish(current)
+                    try:
+                        window.destroy()
+                    except Exception:  # pylint: disable=broad-except
+                        pass
+                    return
+                time.sleep(0.25)
+
+        window.events.closed += lambda *args: finish(None)
+        threading.Thread(target=watch, name="login-watch", daemon=True).start()
+
+    return open_login
+
+
+def parse_args(argv=None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(prog="PS5Remote", description="PS5 Remote app")
+    parser.add_argument("--debug", action="store_true", help="verbose logs and devtools")
+    parser.add_argument("--browser", action="store_true",
+                        help="open the interface in your default browser instead of a window")
+    parser.add_argument("--setup", action="store_true", help="show the setup wizard even if paired")
+    parser.add_argument("--data-dir", help="use this data folder (e.g. a temporary one for testing)")
+    return parser.parse_args(argv)
+
+
+def run(debug=False, browser=False, setup=False, data_dir=None, console=False) -> None:
+    if data_dir:
+        config.set_data_dir(data_dir)
+    redact = setup_logging(debug, console)
+    ps5.use_windows_event_loop()
+    _LOGGER.info("Data folder: %s", config.DATA_DIR)
+    if browser:
+        return _run_browser(setup, redact)
+    return _run_window(debug, setup, redact)
+
+
+def _run_browser(setup: bool, redact: Redact) -> None:
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    server = AppServer(open_login=None, force_setup=setup)  # sign-in uses the paste fallback
+    redact.extra.append(server.token)
+    url = loop.run_until_complete(server.start())
+    print("Opening the interface in your default browser. Press Ctrl+C here to stop.")
+    webbrowser.open(url)
+    try:
+        loop.run_forever()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        loop.run_until_complete(server.stop())
+        loop.close()
+        print("Stopped.")
+
+
+def _run_window(debug: bool, setup: bool, redact: Redact) -> None:
     import webview  # imported here so the server can be tested without a GUI
 
-    setup_logging()
-    ps5.use_windows_event_loop()
     loop = asyncio.new_event_loop()
-    server = AppServer()
+    server = AppServer(open_login=make_login_opener(webview), force_setup=setup)
+    redact.extra.append(server.token)
     started = threading.Event()
     result: dict = {}
 
@@ -60,13 +174,23 @@ def main() -> None:
         _LOGGER.error("Server failed to start: %s", result.get("error"))
         sys.exit(1)
 
-    webview.create_window("PS5 Remote", result["url"], width=640, height=780,
+    title = "PS5 Remote"
+    if AppServer.build_info()["personal"]:
+        title += " (personal build - do not distribute)"
+    webview.create_window(title, result["url"], width=660, height=820,
                           min_size=(420, 600), background_color="#0e1015")
-    # private_mode: no cookies or storage persisted to disk; debug off: no dev tools.
-    webview.start(private_mode=True, debug=False)
+    # private_mode: no cookies or storage kept on disk (Sony's sign-in included).
+    # debug: devtools (right-click > Inspect) only with --debug.
+    webview.start(private_mode=True, debug=debug)
 
     loop.call_soon_threadsafe(loop.stop)
     thread.join(8)
+
+
+def main(argv=None) -> None:
+    args = parse_args(argv)
+    run(debug=args.debug, browser=args.browser, setup=args.setup, data_dir=args.data_dir,
+        console=not config.FROZEN)
 
 
 if __name__ == "__main__":

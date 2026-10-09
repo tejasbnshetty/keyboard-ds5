@@ -14,10 +14,106 @@
       <span id="app-name" class="app-name"></span>
     </div>
     <div class="link">
+      <span id="personal-badge" class="pill personal" hidden title="Contains private sign-in values">Personal build — do not distribute</span>
       <span id="link-dot" class="dot" aria-hidden="true"></span>
       <span id="link-text">Not connected</span>
     </div>
   </header>
+
+  <!-- First-run setup wizard (replaces the remote while active) -->
+  <section id="wizard" class="wizard" hidden>
+    <h1>Set up PS5 Remote</h1>
+    <ol id="wiz-progress" class="wiz-progress">
+      <li data-step="1">Find PS5</li><li data-step="2">Sign in</li><li data-step="3">Pair</li>
+      <li data-step="4">Rest mode</li><li data-step="5">Done</li>
+    </ol>
+    <div id="wiz-busy" class="banner info" hidden></div>
+    <div id="wiz-error" class="banner error" hidden></div>
+
+    <div class="wiz-step" data-step="1">
+      <h2>1. Find your PS5</h2>
+      <p>Turn the PS5 <strong>fully on</strong> (not rest mode) and make sure this PC is on the
+        same network. Then search.</p>
+      <button id="wiz-search" class="action primary">Search for PS5</button>
+      <div id="wiz-consoles" class="choice-list"></div>
+      <details class="manual">
+        <summary>Enter the IP address instead</summary>
+        <p class="hint-left">On the PS5: Settings → Network → Connection Status → View Connection
+          Status → "IPv4 Address".</p>
+        <div class="row"><input id="wiz-ip" type="text" inputmode="decimal" placeholder="192.168.1.50" maxlength="15">
+          <button id="wiz-use-ip" class="action">Use this address</button></div>
+      </details>
+      <p id="wiz-chosen" class="ok-line" hidden></p>
+    </div>
+
+    <div class="wiz-step" data-step="2">
+      <h2>2. Sign in to PlayStation Network</h2>
+      <p>This reads your PSN account ID, which pairing needs. Only the account ID is kept; your
+        password never touches this app and Sony's sign-in token is discarded.</p>
+      <div id="wiz-psn-missing" class="banner error" hidden>Sign-in isn't configured in this copy
+        of the app (no psn_client.json). See the README section "PSN sign-in values".</div>
+      <div id="wiz-keep" hidden>
+        <p>Already signed in as <strong id="wiz-existing"></strong>.</p>
+        <button id="wiz-keep-btn" class="action primary">Keep this account</button>
+        <span class="hint-inline">or sign in with a different one below.</span>
+      </div>
+      <button id="wiz-signin" class="action primary">Sign in with PlayStation</button>
+      <p id="wiz-signin-hint" class="hint-left"></p>
+      <button id="wiz-show-paste" class="link-btn" type="button">Paste the address instead</button>
+      <div id="wiz-paste" class="paste" hidden>
+        <p>After signing in, the browser lands on a page starting with
+          <code>https://remoteplay.dl.playstation.net/remoteplay/redirect?code=</code>.
+          <strong>The page may look blank or show an error — that's normal.</strong>
+          Copy the whole address from the address bar (Ctrl+L, Ctrl+C), paste it here, quickly
+          (it expires in a minute or two).</p>
+        <div class="row"><input id="wiz-paste-url" type="text" placeholder="https://remoteplay.dl.playstation.net/remoteplay/redirect?code=…">
+          <button id="wiz-paste-btn" class="action">Submit</button></div>
+      </div>
+      <p id="wiz-signed" class="ok-line" hidden></p>
+    </div>
+
+    <div class="wiz-step" data-step="3">
+      <h2>3. Pair with the PS5</h2>
+      <ol class="steps">
+        <li>On the PS5 (fully on): <strong>Settings → System → Remote Play</strong>, and turn on
+          <strong>Enable Remote Play</strong>.</li>
+        <li>Choose <strong>Link Device</strong>. An 8-digit number appears. Leave that screen open.</li>
+        <li>Type the number here.</li>
+      </ol>
+      <div class="row"><input id="wiz-pin" type="text" inputmode="numeric" autocomplete="off" maxlength="9" placeholder="12345678">
+        <button id="wiz-pair" class="action primary">Pair</button></div>
+      <p id="wiz-paired" class="ok-line" hidden>Paired ✓</p>
+    </div>
+
+    <div class="wiz-step" data-step="4">
+      <h2>4. Rest mode settings (for Wake)</h2>
+      <p>To wake the PS5 from this app, turn on both of these on the PS5 under
+        <strong>Settings → System → Power Saving → Features Available in Rest Mode</strong>:</p>
+      <ul class="steps"><li><strong>Stay Connected to the Internet</strong></li>
+        <li><strong>Enable Turning On PS5 from Network</strong></li></ul>
+      <p>Then test it: rest mode first, wait for the orange light, then wake.</p>
+      <div class="row"><button id="wiz-test-rest" class="action">Test rest mode</button>
+        <button id="wiz-test-wake" class="action">Test wake</button>
+        <span>PS5: <span id="wiz-power" class="pill">…</span></span></div>
+      <p class="hint-left">You can skip this and test later.</p>
+    </div>
+
+    <div class="wiz-step" data-step="5">
+      <h2>5. All set</h2>
+      <p>Try a button: the PS5 should open its home menu.</p>
+      <div class="row"><button id="wiz-test-press" class="action">Press the PS button</button>
+        <button id="wiz-finish" class="action primary">Open the remote</button></div>
+    </div>
+
+    <div class="wiz-nav">
+      <button id="wiz-cancel" class="action" hidden>Cancel setup</button>
+      <span class="spacer"></span>
+      <button id="wiz-back" class="action">Back</button>
+      <button id="wiz-retry" class="action" hidden>Retry</button>
+      <button id="wiz-next" class="action primary">Next</button>
+    </div>
+    <p id="wiz-data-dir" class="hint-left small"></p>
+  </section>
 
   <div id="streaming-warning" class="banner warn" hidden>
     <strong id="streaming-name"></strong> is running. Connecting will black out its video on the
@@ -123,6 +219,17 @@
         </label>
         <button type="submit" class="action primary">Save settings</button>
       </form>
+
+      <div class="account">
+        <h3>PS5 &amp; account</h3>
+        <p id="account-info" class="hint-left"></p>
+        <div class="row">
+          <button id="repair" class="action">Change PS5 / re-pair</button>
+          <button id="rerun-setup" class="action">Run setup again</button>
+          <button id="forget" class="action danger">Sign out &amp; forget everything</button>
+        </div>
+        <p id="data-dir" class="hint-left small"></p>
+      </div>
     </section>
   </main>
 

@@ -14,8 +14,9 @@ const POWER_LABELS = {
 
 const state = {
   ws: null, settings: null, keymaps: null, buttons: [], repeatable: new Set(),
-  status: {}, held: null, capture: null, retry: 500,
+  status: {}, held: null, capture: null, retry: 500, setup: null,
 };
+const wiz = { step: 1, lastAction: null, migrationAsked: false, wasActive: false };
 const token = new URLSearchParams(location.search).get("token") || "";
 const $ = (sel) => document.querySelector(sel);
 const $$ = (sel) => document.querySelectorAll(sel);
@@ -45,7 +46,9 @@ function handle(msg) {
       state.repeatable = new Set(msg.repeatable);
       applySettings(msg.settings);
       applyKeymaps(msg.keymaps);
+      $("#personal-badge").hidden = !(msg.build && msg.build.personal);
       break;
+    case "setup": applySetup(msg); break;
     case "status": applyStatus(msg); break;
     case "settings": applySettings(msg.settings); break;
     case "keymaps": applyKeymaps(msg.keymaps); break;
@@ -75,13 +78,19 @@ function applyStatus(s) {
   const setup = $("#setup-warning");
   setup.hidden = s.power !== "setup_needed";
   setup.textContent = s.power === "setup_needed"
-    ? `${s.setup_error || "Not set up."} Run the setup steps in the README (discover, login, pair), then restart the app.`
+    ? `${s.setup_error || "Not set up."} Open Settings → Run setup again.`
     : "";
 
   const busy = $("#busy");
   const msg = s.busy || (s.free_in > 0 ? `PS5 is still closing the last session - you can connect in ${s.free_in} s` : "");
   busy.hidden = !msg;
   busy.textContent = msg;
+
+  const wizPower = $("#wiz-power");
+  wizPower.textContent = POWER_LABELS[s.power] || s.power;
+  wizPower.className = `pill ${s.power}`;
+  $("#wiz-test-rest").disabled = s.power !== "on" || !!s.busy;
+  $("#wiz-test-wake").disabled = s.power !== "asleep" || !!s.busy;
 
   $("#wake").disabled = s.power !== "asleep" || !!s.busy;
   $("#rest").disabled = s.power !== "on" || !!s.busy;
@@ -148,7 +157,7 @@ function typingInField(e) {
 
 document.addEventListener("keydown", (e) => {
   if (state.capture) { e.preventDefault(); finishCapture(e.code); return; }
-  if (!$("#modal").hidden || typingInField(e)) return;
+  if (!$("#modal").hidden || typingInField(e) || wizardActive()) return;
   if (state.settings && e.code === state.settings.profile_hotkey) {
     e.preventDefault();
     if (!e.repeat) cycleProfile();
@@ -360,6 +369,154 @@ $("#settings-form").addEventListener("submit", (e) => {
       profile_hotkey: $("#hotkey-capture").dataset.code,
     },
   });
+});
+
+// ---- setup wizard ------------------------------------------------------------------------
+
+function wizardActive() { return !!(state.setup && state.setup.active); }
+
+function wizSteps() {
+  // Re-pairing skips the rest-mode tips (already done once).
+  return state.setup && state.setup.mode === "repair" ? [1, 2, 3, 5] : [1, 2, 3, 4, 5];
+}
+
+function wizSend(msg) {
+  wiz.lastAction = msg;
+  send(msg);
+}
+
+async function applySetup(s) {
+  state.setup = s;
+  document.body.classList.toggle("wizard-on", s.active);
+  $("#wizard").hidden = !s.active;
+  if (s.active && !wiz.wasActive) {   // wizard just opened: start at step 1 and search
+    wiz.step = 1;
+    wiz.lastAction = null;
+    releaseAll();
+    if (!s.consoles.length && !s.console && !s.busy) wizSend({ type: "setup_discover" });
+  }
+  wiz.wasActive = s.active;
+
+  // Settings > PS5 & account
+  $("#account-info").textContent = s.existing_account
+    ? `Signed in as ${s.existing_account}${s.current_ps5 ? ` · paired with the PS5 at ${s.current_ps5}` : ""}.`
+    : "Not signed in.";
+  $("#data-dir").textContent = `Data folder: ${s.data_dir}`;
+  $("#wiz-data-dir").textContent = `Data folder: ${s.data_dir}`;
+  $("#forget").disabled = !s.existing_account && !s.current_ps5;
+
+  // Offer to copy an older data folder (first run of the .exe).
+  if (s.migration && !wiz.migrationAsked) {
+    wiz.migrationAsked = true;
+    const yes = await confirmBox(
+      `Found existing pairing data in ${s.migration}. Copy it into ${s.data_dir}? (The original stays where it is.) Choose Cancel to set up fresh.`);
+    send({ type: "migrate", accept: yes });
+  }
+  renderWizard();
+}
+
+function renderWizard() {
+  const s = state.setup;
+  if (!s || !s.active) return;
+  const steps = wizSteps();
+  if (!steps.includes(wiz.step)) wiz.step = steps.find((n) => n > wiz.step) || 5;
+
+  $$("#wiz-progress li").forEach((li) => {
+    const n = Number(li.dataset.step);
+    li.classList.toggle("skipped", !steps.includes(n));
+    li.classList.toggle("current", n === wiz.step);
+    li.classList.toggle("done", n < wiz.step);
+  });
+  $$(".wiz-step").forEach((el) => el.classList.toggle("active", Number(el.dataset.step) === wiz.step));
+
+  const busy = $("#wiz-busy");
+  busy.hidden = !s.busy && !s.login_window_open;
+  busy.textContent = s.busy || (s.login_window_open ? "Finish signing in in the PlayStation window…" : "");
+  const err = $("#wiz-error");
+  err.hidden = !s.error;
+  err.textContent = s.error || "";
+  $("#wiz-retry").hidden = !s.error || !wiz.lastAction;
+  $("#wiz-cancel").hidden = !s.can_cancel;
+
+  // Step 1
+  $("#wiz-consoles").replaceChildren(...s.consoles.map((c) => {
+    const b = document.createElement("button");
+    b.className = "action choice" + (s.console && s.console.ip === c.ip ? " selected" : "");
+    b.textContent = `${c.name} — ${c.ip} (${c.state})`;
+    b.addEventListener("click", () => wizSend({ type: "setup_use_console", ip: c.ip }));
+    return b;
+  }));
+  const chosen = $("#wiz-chosen");
+  chosen.hidden = !s.console;
+  chosen.textContent = s.console ? `Using ${s.console.name} at ${s.console.ip} ✓` : "";
+
+  // Step 2
+  $("#wiz-psn-missing").hidden = s.psn_configured;
+  $("#wiz-signin").disabled = !s.psn_configured || !!s.busy || s.login_window_open;
+  $("#wiz-keep").hidden = !s.existing_account || !!s.signed_in;
+  $("#wiz-existing").textContent = s.existing_account || "";
+  $("#wiz-signin-hint").textContent = s.embedded_login
+    ? "A PlayStation sign-in window opens. It closes by itself once you're signed in."
+    : "Your browser opens Sony's sign-in page. Afterwards, paste the address below.";
+  if (s.paste_needed) $("#wiz-paste").hidden = false;
+  const signed = $("#wiz-signed");
+  signed.hidden = !s.signed_in;
+  signed.textContent = s.signed_in ? `Signed in as ${s.signed_in} ✓` : "";
+
+  // Step 3
+  $("#wiz-paired").hidden = !s.paired;
+  $("#wiz-pair").disabled = !!s.busy;
+
+  // Navigation
+  const idx = steps.indexOf(wiz.step);
+  $("#wiz-back").disabled = idx <= 0 || !!s.busy;
+  const ready = { 1: !!s.console, 2: !!s.signed_in, 3: !!s.paired, 4: true, 5: false }[wiz.step];
+  $("#wiz-next").hidden = wiz.step === 5;
+  $("#wiz-next").disabled = !ready || !!s.busy;
+}
+
+function wizGo(delta) {
+  const steps = wizSteps();
+  const idx = Math.max(0, Math.min(steps.length - 1, steps.indexOf(wiz.step) + delta));
+  wiz.step = steps[idx];
+  wiz.lastAction = null;
+  renderWizard();
+}
+
+$("#wiz-next").addEventListener("click", () => wizGo(1));
+$("#wiz-back").addEventListener("click", () => wizGo(-1));
+$("#wiz-retry").addEventListener("click", () => { if (wiz.lastAction) send(wiz.lastAction); });
+$("#wiz-cancel").addEventListener("click", () => send({ type: "setup_cancel" }));
+$("#wiz-search").addEventListener("click", () => wizSend({ type: "setup_discover" }));
+$("#wiz-use-ip").addEventListener("click", () => wizSend({ type: "setup_use_console", ip: $("#wiz-ip").value.trim() }));
+$("#wiz-ip").addEventListener("keydown", (e) => { if (e.key === "Enter") $("#wiz-use-ip").click(); });
+$("#wiz-signin").addEventListener("click", () => wizSend({ type: "setup_psn_open" }));
+$("#wiz-keep-btn").addEventListener("click", () => wizSend({ type: "setup_psn_keep" }));
+$("#wiz-show-paste").addEventListener("click", () => { $("#wiz-paste").hidden = false; $("#wiz-paste-url").focus(); });
+$("#wiz-paste-btn").addEventListener("click", () => {
+  const url = $("#wiz-paste-url").value.trim();
+  $("#wiz-paste-url").value = "";   // don't keep the one-time code on screen
+  if (url) wizSend({ type: "setup_psn_paste", url });
+});
+$("#wiz-pin").addEventListener("keydown", (e) => { if (e.key === "Enter") $("#wiz-pair").click(); });
+$("#wiz-pair").addEventListener("click", () => {
+  const pin = $("#wiz-pin").value.replace(/\D/g, "");
+  if (pin.length !== 8) { log("The PIN must be 8 digits.", "error"); return; }
+  $("#wiz-pin").value = "";
+  wizSend({ type: "setup_pair", pin });
+});
+$("#wiz-test-rest").addEventListener("click", () => send({ type: "rest" }));
+$("#wiz-test-wake").addEventListener("click", () => send({ type: "wake" }));
+$("#wiz-test-press").addEventListener("click", () => send({ type: "press", button: "ps" }));
+$("#wiz-finish").addEventListener("click", () => send({ type: "setup_finish" }));
+
+// Settings > PS5 & account
+$("#repair").addEventListener("click", () => send({ type: "setup_start", mode: "repair" }));
+$("#rerun-setup").addEventListener("click", () => send({ type: "setup_start", mode: "full" }));
+$("#forget").addEventListener("click", async () => {
+  if (await confirmBox("Sign out and delete the PS5 pairing, your PSN account ID and the PS5 address from this PC? Settings and key maps are kept. You'll need to set up again (including a new PIN from the PS5).")) {
+    send({ type: "forget_all" });
+  }
 });
 
 connect();

@@ -192,7 +192,7 @@ modes are switched by hand. It hasn't been seen on a real PS5 yet. To look for i
 - `ps5remote/watch.py`: Watch mode, **benched** (bursts, batching, the 9 s countdown, smart play/pause,
   app maps, post-wait test). Reusable by the Windows app.
 - `ps5remote/keyremote.py`: keyboard front end only (key mapping and printing).
-- `ps5remote/app/`: the Windows app (`server.py` web server, `main.py` window, `web/` interface).
+- `ps5remote/app/`: the Windows app (`server.py` web server, `wizard.py` setup wizard, `main.py` window and launch options, `web/` interface).
 - `ps5remote/settings.py`, `ps5remote/keymaps.py`: app settings and keyboard profiles.
 - `ps5remote/appmaps.py`: reads `app_maps.json` (streaming-app list, benched Watch-mode maps).
 - `app_maps.json`: per-app button maps for Watch mode.
@@ -200,13 +200,44 @@ modes are switched by hand. It hasn't been seen on a real PS5 yet. To look for i
 
 ## Windows app
 
-A window with the remote, keyboard control, key remapping, profiles and settings. Do the Phase 1
-setup (discover, login, pair) first.
+A window with the remote, keyboard control, key remapping, profiles and settings. It has its own
+setup wizard, so the command-line Phase 1 steps are optional.
 
 ```powershell
-.\setup.bat      # once more, to install the app's extra packages
-.\app.bat        # opens the window (no console). Logs: logs\app.log
+.\setup.bat        # once, to install the app's extra packages
+.\app.bat          # opens the window (no console)
+.\ps5.bat app      # same, with live logs in this terminal (see "Launching from the terminal")
 ```
+
+### First-run setup wizard
+
+If there's no pairing yet, the app opens a five-step wizard instead of the remote. Each step has
+plain instructions, a progress bar, and Back / Next. A **Retry** button appears after an error.
+
+1. **Find PS5:** it searches the network automatically and lists the consoles it finds. You can
+   also type the IP address instead.
+2. **Sign in:** "Sign in with PlayStation" opens Sony's page in an app window, and the window
+   closes by itself once you're signed in. If that doesn't work (or you close the window), use
+   **Paste the address instead**: copy the address of the page your browser ends on (it may look
+   blank, that's normal) and paste it. Only your account ID is kept, never Sony's token.
+3. **Pair:** open Settings → System → Remote Play → Link Device on the PS5 and type the 8-digit
+   PIN. Errors say what went wrong: the PIN was rejected, the Link Device screen isn't open (or
+   the PIN expired), or the PS5 isn't reachable or is in rest mode.
+4. **Rest mode settings:** the two Power Saving options that Wake needs, with **Test rest mode**
+   and **Test wake** buttons. You can skip this step.
+5. **Done:** **Press the PS button** to try it, then **Open the remote**.
+
+**Nothing is saved until pairing succeeds.** A failed PIN, or closing the wizard halfway, leaves
+any existing pairing exactly as it was.
+
+**Settings → PS5 & account:**
+- **Change PS5 / re-pair:** the wizard without the rest-mode step. You can keep your current
+  PSN account.
+- **Run setup again:** the full wizard.
+- **Sign out & forget everything:** after you confirm, deletes the pairing keys, your account ID
+  and the PS5 address. Your settings and key maps are kept.
+
+### Using the app
 
 **Remote tab**
 - **Status bar:** PS5 power (On / Asleep / Not reachable), the running app or game, and a
@@ -216,36 +247,79 @@ setup (discover, login, pair) first.
 - **Keyboard:** works while the window is focused, using the current profile's keys. It stays
   connected, repeats a held direction, and disconnects when idle (2 minutes by default). When
   the PS5 is still freeing the last session, a blue bar shows "you can connect in N s".
-- **Streaming apps:** when the running app is in `app_maps.json` (Apple TV, Netflix, YouTube,
-  etc.), a yellow note warns that connecting will black out its video.
+- **Streaming apps:** when the running app is in `app_maps.json`, a yellow note warns that
+  connecting will black out its video.
 
 **Keys tab:** click a button, then press a key to bind it. If the key is already used, it offers
-to move it. Changes save straight away to `data\keymaps.json`. You can add and delete profiles,
-and **Reset to defaults** restores the two built-in profiles: "Menus" (the command-line keys)
-and "Games" (WASD + IJKL).
+to move it. Changes save straight away. You can add and delete profiles, and **Reset to
+defaults** restores "Menus" (the command-line keys) and "Games" (WASD + IJKL).
 
 **Profiles:** switch with the dropdown, or with the profile hotkey (**F2** by default).
 
 **Settings tab:** press duration, idle timeout (0 = never), hold-repeat delay and speed, safe
-connect, and the profile hotkey. Saved in `data\config.json`.
+connect, the profile hotkey, and PS5 & account.
+
+### Where data is kept
+
+| Running as | Data (pairing, settings, key maps) | Logs |
+|---|---|---|
+| Source (`app.bat`, `ps5.bat`) | `data\` in this folder | `logs\` in this folder |
+| The .exe | `%APPDATA%\PS5Remote\data` | `%APPDATA%\PS5Remote\logs` |
+| `--data-dir DIR` (testing) | `DIR` | `DIR\logs` |
+
+On the .exe's first run with no pairing, it looks for an older `data` folder next to the .exe
+and one folder up (so `dist\` inside this project works). If it finds one, it asks before
+copying it. It copies; the original stays. If you say no, it won't ask again for that data
+folder. To see the first run again, delete `%APPDATA%\PS5Remote`.
+
+### Launching from the terminal (for testing)
+
+```powershell
+.\ps5.bat app                          # window + live logs here
+.\ps5.bat app --debug                  # verbose logs + devtools (right-click > Inspect)
+.\ps5.bat app --browser                # use your default browser instead of the window; Ctrl+C stops
+.\ps5.bat app --setup                  # force the wizard; your pairing is kept unless the new one works
+.\ps5.bat app --data-dir $env:TEMP\ps5test   # a separate, empty data folder (clean-state testing)
+```
+
+The .exe accepts the same options, e.g. `dist\PS5Remote-personal.exe --setup`, but it has no
+terminal to show logs in. With `--browser`, sign-in always uses the paste method.
+
+Logs never contain keys, tokens, sign-in codes or the PIN. pyremoteplay is held at INFO level
+even with `--debug`, because it logs keys at DEBUG. Every log line also passes through a filter
+that blanks `code=`, `token=`, `pin=` and `client_secret` values and this run's session token.
+
+### PSN sign-in values
+
+Sign-in needs Sony's Remote Play OAuth client ID and secret (the public values used by
+open-source Remote Play clients). **They're not in the source code.** The app reads them, in
+this order, from:
+1. the environment variables `PS5REMOTE_PSN_CLIENT_ID` / `PS5REMOTE_PSN_CLIENT_SECRET`
+2. `psn_client.json` in the data folder
+3. `data\psn_client.json` in this project (so `--data-dir` test runs still work)
+4. a personal .exe (see below)
+
+`psn_client.example.json` shows the format. `psn_client.json` is gitignored everywhere. Your
+copy is in `data\psn_client.json`.
 
 ### Building the .exe
 
 ```powershell
-.\build.bat
+.\build.bat           # PERSONAL build: dist\PS5Remote-personal.exe, with your sign-in values
+.\build.bat public    # dist\PS5Remote.exe, without them (users add their own psn_client.json)
 ```
 
-This creates `dist\PS5Remote.exe`, a single 20 MB file with no console window. It reads its
-settings and pairing from a `data` folder **next to the .exe**. So either move the .exe into this
-project folder, or copy `data` next to it. The `data` folder is never bundled into the .exe
-(checked). Don't share the `data` folder.
+The personal build bundles `data\psn_client.json`. It prints a **DO NOT DISTRIBUTE** warning,
+and its window title and top bar say "personal build". Never share, upload or commit it (`dist\`
+and `*-personal.exe` are gitignored). Neither build contains your pairing data (checked).
 
 ### How the app works
 
 `ps5remote/app/server.py` runs a small web server on **127.0.0.1 only**. The window
 (`ps5remote/app/main.py`, pywebview with Edge WebView2) shows the page from
-`ps5remote/app/web/`. Buttons and keys travel over one WebSocket. The same page is meant to be
-served to the iPhone later.
+`ps5remote/app/web/`. The setup wizard's server side is `ps5remote/app/wizard.py`. Buttons, keys
+and setup steps travel over one WebSocket. The same page is meant to be served to the iPhone
+later.
 
 ## Security
 
@@ -254,32 +328,53 @@ Checked on 2026-10-09:
 | Check | Result |
 |---|---|
 | App server reachable from other devices | **No.** It listens on 127.0.0.1 only (tested from the PC's LAN address) |
-| Controlling it without the session token | **Refused.** The WebSocket needs a random per-run token, the right Origin, and a local Host header (blocks other websites and DNS rebinding). 28 automated tests |
-| Credentials in the interface, logs, code, build or .exe | **None.** Every project file, the logs, `build\` and `PS5Remote.exe` were scanned for the actual values |
-| Stored PSN access token | **None.** Only the account ID and pairing keys are stored, in `data\profiles.json` |
-| File permissions on `data\` and `logs\` | Only your account, SYSTEM and Administrators (normal; no "Users" or "Everyone") |
-| `data\` in git | Ignored and never committed |
-| Dependency vulnerabilities (pip-audit) | protobuf 4.25.9 had one (a JSON-parsing DoS this app never uses). Upgraded to 5.29.6 and re-tested with the PS5. Now: none |
-| Static code scan (bandit) | 2 low-severity notes: Sony's public Remote Play client secret, and a URL it mistakes for a password. Both expected |
+| Controlling it without the session token | **Refused.** The WebSocket needs a random per-run token, the right Origin, and a local Host header. 28 server tests + 30 wizard tests |
+| Credentials in the interface, logs, code, build or .exe | **None.** The account ID, sign-in code and PIN never reach the interface or the logs (tested). The public .exe contains no Sony values |
+| Sony sign-in values in the source | **Removed** (now in gitignored `psn_client.json`). ⚠ They're still in **earlier git commits**: publish from a fresh repository, or rewrite the history first |
+| Stored PSN access token | **None.** Only the account ID and pairing keys are stored |
+| File permissions on the data and log folders | Only your account, SYSTEM and Administrators (normal) |
+| Dependency vulnerabilities (pip-audit) | None (protobuf upgraded to 5.29.6) |
+| Static code scan (bandit) | 2 low-severity notes, both harmless: Sony's token URL mistaken for a password, and an intentionally ignored error when closing the sign-in window. The client secret is no longer flagged (it's out of the code) |
 | **Windows Firewall** | **Action needed, see below** |
 
-### Firewall: rules to remove
+### Firewall
 
-Windows has **inbound "Allow" rules on the Public profile** for your global `python.exe` /
-`pythonw.exe` (which covers *any* Python program) and for `PS5Remote.exe`. They're created when
-someone clicks "Allow" on a Windows Defender prompt. Your Wi-Fi is also set to **Public**.
-Together, that lets any Python program accept connections on any public network you join.
+**Does the app need an inbound rule?** No, with one possible exception. Everything the app does
+starts from the PC (status checks, waking, pairing, the Remote Play session), and Windows
+Firewall automatically lets the replies back in. The window's own server is on 127.0.0.1, which
+the firewall doesn't filter.
 
-The app only needs these for the PS5 search; status, connecting and buttons work without them.
-To remove them, open **PowerShell as administrator** (Start → type "PowerShell" → right-click →
-Run as administrator) and run:
+- **Tested:** a status check worked from a brand-new program with no firewall rule.
+- **The possible exception:** the **network search** (step 1 of the wizard). It sends a
+  broadcast and the PS5 replies directly. Windows normally allows those replies too, but this
+  couldn't be isolated on this PC (see McAfee below). If the search ever finds nothing while
+  typing the IP address works, add this one narrow rule (PowerShell as administrator, Private
+  networks only, replies from your own network only):
+
+  ```powershell
+  New-NetFirewallRule -DisplayName "PS5 Remote - PS5 search replies" -Direction Inbound -Action Allow -Profile Private -Protocol UDP -LocalPort 9303 -RemoteAddress LocalSubnet -Program "$env:USERPROFILE\Downloads\remote-ps5\remote-ps5\dist\PS5Remote-personal.exe"
+  ```
+
+**If Windows shows "Windows Security has blocked some features of this app" for PS5Remote:**
+tick **Private networks** only, **untick Public networks**, and click **Allow access**. Clicking
+**Cancel** is also fine: the app works without it, except possibly the network search.
+
+**McAfee is creating rules automatically.** McAfee is registered as this PC's firewall. During
+testing, every new program got a Windows Firewall "Allow" rule for **both Private and Public**
+networks within about 3 seconds, without any prompt. That's how the Public rules below appeared.
+Consider changing McAfee's firewall setting from automatically allowing programs to asking you.
+
+**Rules to remove** (they allow inbound connections on Public networks): your global
+`python.exe` / `pythonw.exe` (which covers *any* Python program), `PS5Remote.exe` in the project
+folder, and two test programs from this session (`fwtest_ps5.exe`, `fwprobe2.exe`). Open
+**PowerShell as administrator** and run:
 
 ```powershell
-Get-NetFirewallApplicationFilter | Where-Object { $_.Program -match 'python3?11\\pythonw?\.exe$|remote-ps5\\ps5remote\.exe$' } | Get-NetFirewallRule | Where-Object { $_.Direction -eq 'Inbound' -and $_.Profile -match 'Public' } | Remove-NetFirewallRule
+Get-NetFirewallApplicationFilter | Where-Object { $_.Program -match 'python3?11\\pythonw?\.exe$|remote-ps5\\ps5remote\.exe$|\\fwtest_ps5\.exe$|\\fwprobe2\.exe$' } | Get-NetFirewallRule | Where-Object { $_.Direction -eq 'Inbound' } | Remove-NetFirewallRule
 ```
 
-Then set your home Wi-Fi to Private: **Settings → Network & internet → Wi-Fi → your home Wi-Fi network →
-Network profile type → Private**. If Windows asks again, tick **Private networks only**.
+Then set your home Wi-Fi to Private: **Settings → Network & internet → Wi-Fi → your home Wi-Fi
+network → Network profile type → Private**.
 
 ## Benched: Watch mode
 

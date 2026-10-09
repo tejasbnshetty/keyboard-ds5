@@ -5,6 +5,7 @@ The Remote Play session used for buttons and rest mode lives in remote.py.
 from __future__ import annotations
 
 import asyncio
+import ipaddress
 import logging
 import sys
 import threading
@@ -92,9 +93,18 @@ class Device(RPDevice):
         return self._session
 
 
+def is_ipv4(text: str) -> bool:
+    try:
+        ipaddress.IPv4Address(text)
+        return True
+    except ValueError:
+        return False
+
+
 def discover(timeout: int = 3) -> list[dict]:
     """Broadcast on the local network and return PS5 status dicts."""
-    found = ddp.search(timeout=timeout)
+    with _status_lock:  # also uses UDP port 9303
+        found = ddp.search(timeout=timeout)
     return [d for d in found if d.get("host-type", "").upper() == "PS5"]
 
 
@@ -147,17 +157,65 @@ def require_paired(device: RPDevice, user: str, profiles) -> None:
 
 def pair(pin: str) -> None:
     host, user = require_setup()
+    pair_console(host, user, pin)
+
+
+class _Capture(logging.Handler):
+    """Collects pyremoteplay's register errors so we can explain them (ERROR level only:
+    its DEBUG messages contain keys)."""
+
+    def __init__(self):
+        super().__init__(level=logging.ERROR)
+        self.messages: list[str] = []
+
+    def emit(self, record):
+        self.messages.append(record.getMessage())
+
+
+def pair_console(host: str, user: str, pin: str, account_id: str | None = None) -> None:
+    """Pair with the PS5 at `host`. Nothing is saved unless pairing succeeds, so a failed or
+    abandoned re-pair leaves the existing pairing untouched.
+    account_id: a freshly signed-in account not saved yet (setup wizard)."""
+    if not (pin.isdigit() and len(pin) == 8):
+        raise PS5Error("The PIN must be exactly 8 digits.")
     profiles = config.profiles()
-    device = _device(host)
+    if account_id:
+        from . import psn  # pylint: disable=import-outside-toplevel
+        profiles.update_user(psn.make_profile(user, account_id, profiles.get(user)))
+    elif user not in profiles:
+        raise PS5Error("Not signed in to PSN yet.")
+    device = Device(host)
+    with _status_lock:
+        found = device.get_status()
+    if not found:
+        raise PS5Error(f"The PS5 at {host} isn't reachable. Is it switched on and on the same network?")
     if not device.is_on:
-        raise PS5Error("The PS5 must be fully on (not in rest mode) to pair.")
-    profile = device.register(user, pin, timeout=5.0, profiles=profiles, save=False)
+        raise PS5Error("The PS5 is in rest mode. Turn it fully on, then open the Link Device screen again.")
+    capture = _Capture()
+    reg_log = logging.getLogger("pyremoteplay.register")
+    reg_log.addHandler(capture)
+    try:
+        # register() runs its own status query on UDP 9303; keep the app's poller off it.
+        with _status_lock:
+            profile = device.register(user, pin, timeout=5.0, profiles=profiles, save=False)
+    except OSError as err:
+        raise PS5Error(f"Couldn't reach the PS5 to pair ({err.__class__.__name__}).") from err
+    finally:
+        reg_log.removeHandler(capture)
     if not profile:
-        raise PS5Error(
-            "Pairing failed. Make sure the 'Link Device' screen with the PIN is still open on "
-            "the PS5 and the PIN is typed exactly (8 digits). The PIN changes each time."
-        )
+        text = " ".join(capture.messages)
+        if "Register Mode" in text:
+            raise PS5Error(
+                "The PS5 isn't showing the Link Device screen, or the PIN expired. On the PS5 open "
+                "Settings > System > Remote Play > Link Device again and enter the new PIN.")
+        if "Failed to register" in text:
+            raise PS5Error("The PS5 rejected the PIN. Check the 8 digits on the TV (the PIN changes "
+                           "each time the Link Device screen opens).")
+        if "No Register Response" in text:
+            raise PS5Error("The PS5 didn't answer. Check it's on the same network and try again.")
+        raise PS5Error("Pairing failed. Open Link Device on the PS5 again and enter the new PIN.")
     config.save_profiles(profiles)
+    config.update(ps5_host=host, psn_user=user)
 
 
 def send_wake() -> bool:
