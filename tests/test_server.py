@@ -241,10 +241,35 @@ def test_save_keymaps_rejects_the_hotkey():
     assert not keymaps.keymaps_file().exists()
 
 
+def test_rejected_keymaps_put_the_interface_back():
+    """E.g. a profile name the server refuses: the window gets the saved maps back."""
+    async def test(server, base, session):
+        bad = keymaps.defaults()
+        bad["profiles"]["<bad name>"] = {"bindings": {}}
+        async with await open_ws(server, base, session) as ws:
+            await ws.send_json({"type": "save_keymaps", "keymaps": bad})
+            return (await receive_until(ws, "keymaps"))[-1]["keymaps"]
+    assert serve(test) == keymaps.DEFAULTS
+
+
+def test_custom_profile_round_trip():
+    async def test(server, base, session):
+        km = keymaps.defaults()
+        km["profiles"]["My racer"] = {"hold_buttons": True,
+                                      "bindings": {"KeyW": "r2", "KeyS": "l2", "KeyA": "ls_left"}}
+        km["active"] = "My racer"
+        async with await open_ws(server, base, session) as ws:
+            await ws.send_json({"type": "save_keymaps", "keymaps": km})
+            return (await receive_until(ws, "keymaps"))[-1]["keymaps"]
+    saved = serve(test)
+    assert saved["active"] == "My racer"
+    assert keymaps.load()["profiles"]["My racer"]["bindings"]["KeyW"] == "r2"
+
+
 def test_save_and_reset_keymaps():
     async def test(server, base, session):
         km = keymaps.defaults()
-        km["active"] = "Games"
+        km["active"] = "Gaming"
         async with await open_ws(server, base, session) as ws:
             await ws.send_json({"type": "save_keymaps", "keymaps": km})
             saved = (await receive_until(ws, "keymaps"))[-1]["keymaps"]
@@ -252,7 +277,7 @@ def test_save_and_reset_keymaps():
             reset = (await receive_until(ws, "keymaps"))[-1]["keymaps"]
             return saved, reset
     saved, reset = serve(test)
-    assert saved["active"] == "Games"
+    assert saved["active"] == "Gaming"
     assert reset == keymaps.DEFAULTS
     assert keymaps.load() == keymaps.DEFAULTS
 
@@ -459,6 +484,7 @@ def test_init_lists_actions_and_new_buttons():
     init = serve(test)["init"]
     assert "touchpad" in init["buttons"] and "ls_up" in init["actions"]
     assert "Gaming" in init["keymaps"]["profiles"]
+    assert init["templates"] == keymaps.DEFAULTS["profiles"]   # for "New profile"
 
 
 def test_forget_pairing_keeps_settings_and_keymaps(paired, monkeypatch):

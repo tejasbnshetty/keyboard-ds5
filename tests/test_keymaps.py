@@ -15,18 +15,44 @@ def test_defaults_are_valid():
     assert keymaps.validate(keymaps.defaults(), HOTKEYS) == keymaps.DEFAULTS
 
 
-def test_menu_profiles_cover_every_original_button():
+def test_built_in_profiles():
+    assert list(keymaps.DEFAULTS["profiles"]) == ["Menus", "Gaming"]
+
+
+def test_menus_profile_covers_every_original_button():
     original = {"up", "down", "left", "right", "cross", "circle", "triangle", "square",
                 "options", "ps", "l1", "r1", "l2", "r2"}
-    for name in ("Menus", "Games"):
-        profile = keymaps.DEFAULTS["profiles"][name]
-        assert set(profile["bindings"].values()) == original
-        assert profile["hold_buttons"] is False and profile["mouse_stick"] is False
+    profile = keymaps.DEFAULTS["profiles"]["Menus"]
+    assert set(profile["bindings"].values()) == original
+    assert profile["hold_buttons"] is False
+
+
+def test_saved_custom_profiles_are_kept():
+    """Profiles you made (including an old 'Games') stay; only the defaults changed."""
+    data = keymaps.defaults()
+    data["profiles"]["Games"] = {"hold_buttons": False, "bindings": {"KeyW": "up"}}
+    data["profiles"]["My racer"] = {"hold_buttons": True, "bindings": {"KeyW": "r2", "KeyS": "l2"}}
+    keymaps.save(data)
+    assert list(keymaps.load({"F1", "F2"})["profiles"]) == ["Menus", "Gaming", "Games", "My racer"]
+
+
+def test_old_mouse_stick_flag_is_dropped():
+    """The captured mouse aims in every profile now; files saved with the old flag still load."""
+    old = {"version": 2, "active": "P", "profiles": {"P": {
+        "hold_buttons": True, "mouse_stick": False, "bindings": {"KeyW": "ls_up"}}}}
+    keymaps.save(old)
+    assert keymaps.load()["profiles"]["P"] == {"hold_buttons": True, "bindings": {"KeyW": "ls_up"}}
+
+
+@pytest.mark.parametrize("name", ["My racer", "FPS (fast)", "Ünïcode-1", "a+b & c_d.e"])
+def test_custom_profile_names_allowed(name):
+    clean = keymaps.validate({"profiles": {name: {"bindings": {}}}}, set())
+    assert name in clean["profiles"]
 
 
 def test_gaming_profile_defaults():
     g = keymaps.DEFAULTS["profiles"]["Gaming"]
-    assert g["hold_buttons"] and g["mouse_stick"]
+    assert g["hold_buttons"] and set(g) == {"hold_buttons", "bindings"}
     b = g["bindings"]
     assert [b[k] for k in ("KeyW", "KeyA", "KeyS", "KeyD")] == ["ls_up", "ls_left", "ls_down", "ls_right"]
     assert [b[k] for k in ("Space", "KeyC", "KeyE", "KeyR")] == ["cross", "circle", "square", "triangle"]
@@ -55,8 +81,7 @@ def test_version_1_profile_is_converted():
     clean = keymaps.validate(old, HOTKEYS)
     assert clean["version"] == keymaps.VERSION
     assert clean["profiles"]["Mine"] == {
-        "hold_buttons": False, "mouse_stick": False,
-        "bindings": {"KeyW": "up", "Space": "cross"}}
+        "hold_buttons": False, "bindings": {"KeyW": "up", "Space": "cross"}}
 
 
 def test_loading_a_version_1_file_adds_gaming(data_dir):

@@ -4,11 +4,11 @@
 Inputs are browser KeyboardEvent.code values ("ArrowUp", "Enter", "KeyP"...), which name the
 physical key regardless of keyboard layout, plus Mouse0-Mouse4 (left, middle, right, back,
 forward) and WheelUp / WheelDown. Actions are in gameinput.ACTIONS. One input does one
-action; an action can have several inputs. Stored in data/keymaps.json:
+action; an action can have several inputs. The captured mouse moves the right stick in every
+profile. Stored in data/keymaps.json:
 
   {"version": 2, "active": "Menus", "profiles": {"Menus": {
       "hold_buttons": false,   # false: taps, D-pad repeats while held; true: held like a pad
-      "mouse_stick": false,    # captured mouse moves the right stick
       "bindings": {"ArrowUp": "up", ...}}}}
 
 Version 1 files ({"profiles": {"Menus": {"up": "ArrowUp", ...}}}) are converted on load.
@@ -39,8 +39,8 @@ _PROFILE_NAME = re.compile(r"^[\w .\-+&()]{1,24}$")
 _INPUT = re.compile(r"^[A-Za-z0-9]{1,24}$")
 
 
-def _profile(bindings: dict, hold_buttons=False, mouse_stick=False) -> dict:
-    return {"hold_buttons": hold_buttons, "mouse_stick": mouse_stick, "bindings": bindings}
+def _profile(bindings: dict, hold_buttons=False) -> dict:
+    return {"hold_buttons": hold_buttons, "bindings": bindings}
 
 
 DEFAULTS = {
@@ -52,11 +52,6 @@ DEFAULTS = {
             "Enter": "cross", "Backspace": "circle", "KeyT": "triangle", "KeyS": "square",
             "KeyO": "options", "KeyP": "ps", "KeyQ": "l1", "KeyE": "r1", "KeyZ": "l2", "KeyC": "r2",
         }),
-        "Games": _profile({
-            "KeyW": "up", "KeyS": "down", "KeyA": "left", "KeyD": "right",
-            "KeyK": "cross", "KeyL": "circle", "KeyI": "triangle", "KeyJ": "square",
-            "Enter": "options", "Escape": "ps", "KeyQ": "l1", "KeyE": "r1", "Digit1": "l2", "Digit3": "r2",
-        }),
         "Gaming": _profile({
             "KeyW": "ls_up", "KeyS": "ls_down", "KeyA": "ls_left", "KeyD": "ls_right",
             "AltLeft": "walk",
@@ -65,7 +60,7 @@ DEFAULTS = {
             "ShiftLeft": "l3", "KeyV": "r3", "KeyQ": "l1", "KeyF": "r1",
             "Tab": "touchpad", "Enter": "options",
             "Mouse0": "r2", "Mouse2": "l2", "WheelUp": "r1", "WheelDown": "l1",
-        }, hold_buttons=True, mouse_stick=True),
+        }, hold_buttons=True),
     },
 }
 
@@ -109,11 +104,10 @@ def validate(data: dict, reserved: set[str]) -> dict:
             if key in WHEEL_INPUTS and action not in BUTTONS:
                 raise ValueError(f"The mouse wheel can only press buttons, not {action}.")
             out[key] = action
-        for flag in ("hold_buttons", "mouse_stick"):
-            if not isinstance(profile.get(flag, False), bool):
-                raise ValueError(f"Profile '{name}': {flag} must be true or false.")
-        clean["profiles"][name] = _profile(out, profile.get("hold_buttons", False),
-                                           profile.get("mouse_stick", False))
+        if not isinstance(profile.get("hold_buttons", False), bool):
+            raise ValueError(f"Profile '{name}': hold_buttons must be true or false.")
+        # (Older files may have "mouse_stick": the captured mouse now aims in every profile.)
+        clean["profiles"][name] = _profile(out, profile.get("hold_buttons", False))
     if clean["active"] not in clean["profiles"]:
         clean["active"] = next(iter(clean["profiles"]))
     return clean

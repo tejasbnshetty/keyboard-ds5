@@ -78,6 +78,7 @@ function handle(msg) {
       state.buttons = msg.buttons;
       state.buttonSet = new Set(msg.buttons);
       state.actions = msg.actions;
+      state.templates = msg.templates || {};
       state.repeatable = new Set(msg.repeatable);
       applySettings(msg.settings);
       applyKeymaps(msg.keymaps);
@@ -290,27 +291,14 @@ function releaseCapture() {
   if (document.pointerLockElement) document.exitPointerLock();
 }
 
-/** The profile to game in: the current one if it uses the mouse, else "Gaming", else any that does. */
-function gamingProfileName() {
-  const km = state.keymaps;
-  if (!km) return null;
-  if (km.profiles[km.active].mouse_stick) return km.active;
-  if (km.profiles.Gaming && km.profiles.Gaming.mouse_stick) return "Gaming";
-  return Object.keys(km.profiles).find((name) => km.profiles[name].mouse_stick) || null;
+// The captured mouse moves the right stick in every profile; the profile stays as it is.
+function toggleMouseCapture() {
+  if (state.captured) releaseCapture(); else requestCapture();
 }
 
-function toggleMouseCapture() {
-  if (state.captured) { releaseCapture(); return; }
-  const name = gamingProfileName();
-  if (!name) {
-    log("No profile uses the mouse. In the Keys tab, tick \"The captured mouse moves the right stick\", or Reset to defaults to get the Gaming profile back.", "error");
-    return;
-  }
-  if (name !== state.keymaps.active) {
-    setProfile(name);
-    log(`Switched to the ${name} profile (WASD + mouse).`);
-  }
-  requestCapture();   // still inside the key press / click, as pointer lock requires
+/** True if the profile binds keys to the left stick (e.g. WASD). */
+function movesLeftStick(p) {
+  return !!p && Object.values(p.bindings).some((action) => action.startsWith("ls_"));
 }
 
 $("#capture-mouse").addEventListener("click", (e) => { e.currentTarget.blur(); toggleMouseCapture(); });
@@ -339,16 +327,12 @@ function renderCaptureState() {
   const btn = $("#capture-mouse");
   btn.classList.toggle("on", state.captured);
   const key = state.settings ? keyLabel(state.settings.mouse_toggle_key) : "F1";
-  const p = activeProfile();
-  const idle = p && !p.mouse_stick ? `Start gaming (${key})` : `Capture mouse (${key})`;
-  btn.textContent = state.captured ? `Release mouse (${key} / Esc)` : idle;
+  btn.textContent = state.captured ? `Release mouse (${key} / Esc)` : `Capture mouse (${key})`;
   $("#captured-key").textContent = key;
 }
 
 document.addEventListener("mousemove", (e) => {
   if (!state.captured) return;
-  const p = activeProfile();
-  if (!p || !p.mouse_stick) return;
   if (Math.abs(e.movementX) > MAX_MOUSE_EVENT || Math.abs(e.movementY) > MAX_MOUSE_EVENT) return;
   state.mouse.dx += e.movementX;
   state.mouse.dy += e.movementY;
@@ -436,10 +420,7 @@ function renderKeycaps() {
   const left = dirs("ls");
   $("#viz-left-keys").textContent = [left.join(" "), walk ? `${shortLabel(walk)} walk` : ""]
     .filter(Boolean).join(" · ");
-  const p = activeProfile();
-  const right = dirs("rs");
-  $("#viz-right-keys").textContent = [p && p.mouse_stick ? "Mouse" : "", right.join(" ")]
-    .filter(Boolean).join(" · ");
+  $("#viz-right-keys").textContent = ["Mouse", dirs("rs").join(" ")].filter(Boolean).join(" · ");
 }
 
 function flashButton(button) {
@@ -455,14 +436,11 @@ function renderGamingHint() {
   const hint = $("#gaming-hint");
   if (!p) { hint.textContent = ""; return; }
   const key = state.settings ? keyLabel(state.settings.mouse_toggle_key) : "F1";
-  const target = gamingProfileName();
-  if (p.mouse_stick) {
-    hint.textContent = `Profile "${state.keymaps.active}": WASD moves, ${key} captures the mouse to aim. Release it before using the rest of this window.`;
-  } else if (target) {
-    hint.textContent = `Profile "${state.keymaps.active}" is for menus. ${key} switches to "${target}" (WASD + mouse) and captures the mouse.`;
-  } else {
-    hint.textContent = "No profile uses the mouse yet: see the Keys tab.";
-  }
+  const name = state.keymaps.active;
+  const gaming = state.keymaps.profiles.Gaming && name !== "Gaming" ? ' Switch to "Gaming" for WASD movement.' : "";
+  hint.textContent = movesLeftStick(p)
+    ? `${key} captures the mouse to aim. Release it before using the rest of this window.`
+    : `${key} captures the mouse to aim. Profile "${name}" doesn't bind keys to the left stick.${gaming}`;
   renderCaptureState();
 }
 
@@ -521,7 +499,6 @@ function applyKeymaps(km) {
   $("#profile-delete").disabled = Object.keys(km.profiles).length < 2;
   const p = activeProfile();
   $("#opt-hold").checked = !!p.hold_buttons;
-  $("#opt-mouse").checked = !!p.mouse_stick;
   renderKeyTable();
   renderGamingHint();
   renderKeycaps();
@@ -658,20 +635,89 @@ $("#opt-hold").addEventListener("change", (e) => {
   saveKeymaps();
   e.target.blur();
 });
-$("#opt-mouse").addEventListener("change", (e) => {
-  activeProfile().mouse_stick = e.target.checked;
-  renderGamingHint();
-  saveKeymaps();
-  e.target.blur();
-});
+
+const MAX_PROFILES = 12;
+const PROFILE_NAME = /^[\p{L}\p{N}_ .\-+&()]{1,24}$/u;   // as keymaps.py allows
+
+function profileNameError(name, renaming = null) {
+  if (!PROFILE_NAME.test(name)) return "Profile names can have up to 24 letters, numbers, spaces and . - + & ( ) _";
+  if (name !== renaming && state.keymaps.profiles[name]) return `A profile called "${name}" already exists.`;
+  return "";
+}
+
+/** Asks for a profile name, and optionally a choice from a list. Resolves {name, choice} or null. */
+function profileDialog(text, initial, choices = null) {
+  return new Promise((resolve) => {
+    const modal = $("#modal");
+    const input = $("#modal-input");
+    const select = $("#modal-select");
+    const error = $("#modal-error");
+    $("#modal-text").textContent = text;
+    input.hidden = false;
+    input.value = initial;
+    select.hidden = !choices;
+    select.replaceChildren(...(choices || []).map(([value, label]) => {
+      const opt = document.createElement("option");
+      opt.value = value;
+      opt.textContent = label;
+      return opt;
+    }));
+    error.hidden = true;
+    modal.hidden = false;
+    input.focus();
+    input.select();
+    const done = (ok) => {
+      const name = input.value.trim();
+      if (ok) {
+        const problem = profileNameError(name, initial || null);
+        if (problem) { error.textContent = problem; error.hidden = false; input.focus(); return; }
+      }
+      modal.hidden = select.hidden = error.hidden = true;
+      $("#modal-ok").onclick = $("#modal-cancel").onclick = input.onkeydown = null;
+      resolve(ok ? { name, choice: select.value } : null);
+    };
+    $("#modal-ok").onclick = () => done(true);
+    $("#modal-cancel").onclick = () => done(false);
+    input.onkeydown = (e) => { if (e.key === "Enter") done(true); if (e.key === "Escape") done(false); };
+  });
+}
+
+function copyProfile(p) { return { ...p, bindings: { ...p.bindings } }; }
 
 $("#profile-add").addEventListener("click", async () => {
-  const name = await confirmBox("Name for the new profile (copies the current one):", true, "");
-  if (!name) return;
-  if (state.keymaps.profiles[name]) { log(`A profile called ${name} already exists.`, "error"); return; }
-  const current = activeProfile();
-  state.keymaps.profiles[name] = { ...current, bindings: { ...current.bindings } };
-  setProfile(name);
+  if (Object.keys(state.keymaps.profiles).length >= MAX_PROFILES) {
+    log(`You can have up to ${MAX_PROFILES} profiles. Delete one first.`, "error");
+    return;
+  }
+  const choices = [
+    ["copy", `A copy of "${state.keymaps.active}"`],
+    ...Object.keys(state.templates).map((name) => [`template:${name}`, `The default ${name} layout`]),
+    ["empty-game", "Nothing bound: gaming style (buttons held down)"],
+    ["empty-menu", "Nothing bound: menu style (taps, directions repeat)"],
+  ];
+  const result = await profileDialog("New profile. Name it, and choose what it starts with:", "", choices);
+  if (!result) return;
+  let profile;
+  if (result.choice === "copy") profile = copyProfile(activeProfile());
+  else if (result.choice.startsWith("template:")) profile = copyProfile(state.templates[result.choice.slice(9)]);
+  else {
+    profile = { hold_buttons: result.choice === "empty-game", bindings: {} };
+  }
+  state.keymaps.profiles[result.name] = profile;
+  setProfile(result.name);
+  log(`Created the profile "${result.name}". Bind its keys below.`);
+});
+
+$("#profile-rename").addEventListener("click", async () => {
+  const old = state.keymaps.active;
+  const result = await profileDialog(`Rename the profile "${old}" to:`, old);
+  if (!result || result.name === old) return;
+  const profiles = {};   // keep the order, swap the name
+  Object.entries(state.keymaps.profiles).forEach(([name, p]) => { profiles[name === old ? result.name : name] = p; });
+  state.keymaps.profiles = profiles;
+  state.keymaps.active = result.name;
+  applyKeymaps(state.keymaps);
+  saveKeymaps();
 });
 
 $("#profile-delete").addEventListener("click", async () => {

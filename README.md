@@ -109,9 +109,10 @@ playback. The app shows a warning when a known streaming app is running.
 
 ### Gaming: WASD and mouse
 
-Press **F1** (or click **Start gaming**) to capture the mouse. If you're on a menu profile,
-F1 switches to the **Gaming** profile first. The pointer is hidden while captured. **Esc** or
-**F1** releases it, and so does switching windows or minimising.
+Choose the **Gaming** profile and press **F1** (or click **Capture mouse**) to capture the
+mouse. A captured mouse moves the right stick in **every** profile, including your own. The
+profile only decides what keys and mouse buttons do. The pointer is hidden while captured.
+**Esc** or **F1** releases it, and so does switching windows or minimising.
 
 In a gaming profile, buttons stay down for as long as you hold their key.
 
@@ -172,14 +173,21 @@ Walk, Light L2/R2, and right-stick directions for keys. Click **+**, then press 
 mouse button or turn the wheel. An action can have several inputs. Click a binding to remove
 it. Changes save straight away.
 
-Each profile has two options:
-- **Gaming profile:** buttons stay down while held. Off, each press is a tap and held
-  directions repeat, which suits menus.
-- **The captured mouse moves the right stick.**
+Each profile has one option, **Gaming profile**: buttons stay down while held. Off, each press
+is a tap and held directions repeat, which suits menus. The captured mouse aims with the right
+stick in every profile either way.
 
-Built-in profiles: **Menus** (arrows + Enter/Backspace), **Games** (WASD as the D-pad, IJKL
-as face buttons) and **Gaming** (WASD + mouse). Add, delete or **Reset to defaults** at any
-time. Switch profiles with the dropdown or **F2**.
+Built-in profiles: **Menus** (arrows + Enter/Backspace) and **Gaming** (WASD + mouse).
+
+**Your own profiles:** click **New profile**, name it (up to 24 characters), and choose what it
+starts with:
+- a copy of the current profile;
+- the default Menus or Gaming layout;
+- nothing bound, in gaming style or menu style.
+
+Then bind its keys. **Rename** and **Delete profile** act on the current profile. **Reset to
+defaults** restores the built-in profiles and removes your own. You can have up to 12
+profiles. Switch between them with the dropdown or **F2**.
 
 ### Settings tab
 
@@ -378,8 +386,10 @@ If the address does change, run the setup again or `.\ps5.bat discover`.
 - **Wake does nothing:** check the two rest-mode settings in the wizard's step 4.
 - **A press does nothing:** some screens ignore input briefly. Try a longer press duration
   (Settings, or `--ms 150`).
-- **Keys work but WASD/mouse don't:** you're on a menu profile. Press F1, or choose
-  **Gaming**.
+- **WASD doesn't move the character:** the current profile doesn't bind keys to the left
+  stick (Menus doesn't). Choose **Gaming**, or bind them in the Keys tab.
+- **The mouse doesn't aim:** capture it first with F1. Mouse movement only counts while the
+  green "Mouse captured" bar shows.
 - **Mouse won't capture:** click inside the window first, and wait a second after pressing
   Esc before capturing again. As a fallback, try `.\ps5.bat app --browser`.
 - **More detail:** run `.\ps5.bat app --debug` (or `.\ps5.bat -v <command>`), and check
