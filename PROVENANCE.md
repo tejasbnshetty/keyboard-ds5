@@ -20,7 +20,10 @@ listed below.
 | `ps5remote/psn.py` | **Original code.** The redirect URL, scopes and login-URL parameters are Sony's values, taken from chiaki-ng (`gui/include/psnaccountid.h`). The OAuth **client ID/secret are not in the source or the git history**: you supply your own `psn_client.json` (see the README section "PSN sign-in values"). The account-ID encoding (8-byte little-endian, base64) is the same behaviour as pyremoteplay and chiaki-ng, written independently |
 | `ps5remote/ps5.py` | **Original**, except `Device.create_session`, an adapted copy (~10 lines) of pyremoteplay `RPDevice.create_session`. Error-code values are protocol constants also listed in pyremoteplay and chiaki-ng |
 | `ps5remote/rpsession.py` | **Mixed** (see below) |
-| `app_maps.json`, `README.md`, `setup.bat`, `ps5.bat`, `requirements.txt` | **Original** |
+| `ps5remote/gamepad.py` | **Original code.** The button IDs, the two-byte event form (ID + 0x20 while pressed), analog L2/R2 values, newest-first event history, and the 8 ms / 200 ms state intervals are protocol behaviour **looked up** in chiaki-ng (`lib/src/feedback.c`, `feedbacksender.c`). Packets are built with pyremoteplay's `RPStream.send_feedback` and `ControllerState` |
+| `ps5remote/gameinput.py` | **Original** |
+| `app_maps.json`, `README.md`, `setup.bat`, `ps5.bat`, `test.bat`, `requirements*.txt` | **Original** |
+| `tests/*` | **Original** |
 
 ### `ps5remote/rpsession.py` in detail
 

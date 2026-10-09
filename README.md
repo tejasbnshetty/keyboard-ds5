@@ -38,8 +38,12 @@ Known risks and workarounds:
 | Its "disconnect" message was never sent (stop-flag ordering bug), and was malformed | Fixed; the PS5 now answers "Client Shutdown" |
 | It waits ~2 s for the PS5's session ID before starting the stream | Uses a chiaki-ng-style fallback ID after 0.3 s (`--safe-connect` turns this off) |
 | It reads only the low byte of control message types and ignores the PS5's "protected content" messages | Full control-message handling (`rpsession.FastSession._handle`) |
+| Its controller can only press L2/R2 fully, and sends Options, PS, L3, R3 and Touchpad with an extra byte that chiaki-ng doesn't send | Our own sender (`gamepad.py`) uses chiaki-ng's format: analog L2/R2 (0-255), two-byte events for those five buttons |
+| Its controller thread sends stick state while button presses go out from the event loop, both using the same encryption counter | Its thread isn't started; every button and stick update is sent from the event loop (`gamepad.PadSender`) |
+| It sends stick state only when it changes, with no rate limit | Sticks are sent at up to 125 updates a second (setting) and resent every 200 ms, as chiaki-ng does |
 
-All of these patches are in `ps5remote/rpsession.py`, with notes on each.
+The session patches are in `ps5remote/rpsession.py`, and the controller sender is in
+`ps5remote/gamepad.py`, with notes on each.
 
 ### Connect time
 
@@ -71,7 +75,8 @@ Then, in this folder:
 .\setup.bat
 ```
 
-This creates a virtual environment in `.venv` and installs the pinned versions from `requirements.txt`.
+This creates a virtual environment in `.venv` and installs the pinned versions from
+`requirements.txt`, `requirements-app.txt` (the Windows app) and `requirements-dev.txt` (tests).
 
 ## Phase 1: connect to your PS5
 
@@ -146,7 +151,7 @@ Features Available in Rest Mode**:
 
 This connects, presses one button and disconnects. If the PS5 is asleep, it wakes it first and
 shows progress while it waits. Buttons: `up down left right cross circle triangle square
-options ps l1 r1 l2 r2`.
+options ps l1 r1 l2 r2 l3 r3 touchpad`.
 
 ### Keyboard remote
 
@@ -192,18 +197,23 @@ modes are switched by hand. It hasn't been seen on a real PS5 yet. To look for i
 
 ### How the code is organised
 
-- `ps5remote/remote.py`: the `Remote` class (connect, auto-wake, tap, hold/repeat,
-  dropped-session detection, clean disconnect). The phone server reuses this.
+- `ps5remote/remote.py`: the `Remote` class (connect, auto-wake, tap, hold/repeat, held
+  gaming state, dropped-session detection, clean disconnect). The phone server reuses this.
+- `ps5remote/gamepad.py`: sends buttons (analog L2/R2) and sticks to the PS5, rate-limited.
+- `ps5remote/gameinput.py`: gaming input: keys to left stick, mouse speed to right stick, walk
+  and light-trigger modifiers.
 - `ps5remote/rpsession.py`: fixes to pyremoteplay's session (faster connect, working
   disconnect, control messages, playback signal).
 - `ps5remote/watch.py`: Watch mode, **benched** (bursts, batching, the 9 s countdown, smart play/pause,
   app maps, post-wait test). Reusable by the Windows app.
 - `ps5remote/keyremote.py`: keyboard front end only (key mapping and printing).
 - `ps5remote/app/`: the Windows app (`server.py` web server, `wizard.py` setup wizard, `main.py` window and launch options, `web/` interface).
-- `ps5remote/settings.py`, `ps5remote/keymaps.py`: app settings and keyboard profiles.
+- `ps5remote/settings.py`, `ps5remote/keymaps.py`: app settings and input profiles (keys,
+  mouse buttons and wheel to actions).
 - `ps5remote/appmaps.py`: reads `app_maps.json` (streaming-app list, benched Watch-mode maps).
 - `app_maps.json`: per-app button maps for Watch mode.
 - `ps5remote/ps5.py`: discovery, status, pairing, wake.
+- `tests/`: the offline test suite (see [Tests](#tests)).
 
 ## Windows app
 
@@ -249,7 +259,13 @@ any existing pairing exactly as it was.
 **Remote tab**
 - **Status bar:** PS5 power (On / Asleep / Not reachable), the running app or game, and a
   connected indicator.
-- **On-screen buttons:** the controller's buttons. Hold a direction to scroll.
+- **On-screen buttons:** the controller's buttons, including L3, R3 and Touchpad. Hold a
+  direction to scroll. A small tag under each button shows the key or mouse input that
+  presses it in the current profile (e.g. "Space" on Cross, "LMB" on R2), and buttons light up
+  while held, so you can see what you're doing while playing. The sticks are labelled too
+  ("W A S D · LAlt walk", "Mouse"). Hover a button to see all of its inputs.
+- **Gaming panel:** a live view of what's being sent (both sticks, L2/R2 pressure, held
+  buttons) and the **Capture mouse** button. See [Gaming](#gaming-wasd-and-mouse).
 - **Wake** and **Rest mode** (asks for confirmation), plus a **Disconnect** button.
 - **Keyboard:** works while the window is focused, using the current profile's keys. It stays
   connected, repeats a held direction, and disconnects when idle (2 minutes by default). When
@@ -257,14 +273,124 @@ any existing pairing exactly as it was.
 - **Streaming apps:** when the running app is in `app_maps.json`, a yellow note warns that
   connecting will black out its video.
 
-**Keys tab:** click a button, then press a key to bind it. If the key is already used, it offers
-to move it. Changes save straight away. You can add and delete profiles, and **Reset to
-defaults** restores "Menus" (the command-line keys) and "Games" (WASD + IJKL).
+**Keys tab:** every action (buttons, D-pad, left-stick directions, walk, light trigger,
+right-stick directions) with the inputs bound to it. Click **+**, then press a key, click a
+mouse button or turn the wheel to add one; an action can have several. Click a binding to
+remove it. If the input already does something else, it offers to move it. The wheel can only
+press buttons. Two options per profile:
+- **Gaming profile:** buttons stay down while their key is held. Off, each press is a tap and
+  held directions repeat (for menus).
+- **The captured mouse moves the right stick.**
+
+Changes save straight away. You can add and delete profiles, and **Reset to defaults** restores
+"Menus" (the command-line keys), "Games" (WASD + IJKL as the D-pad and buttons) and "Gaming"
+(WASD + mouse, see below). Key maps saved by older versions are converted automatically, and
+the Gaming profile is added to them.
 
 **Profiles:** switch with the dropdown, or with the profile hotkey (**F2** by default).
 
 **Settings tab:** press duration, idle timeout (0 = never), hold-repeat delay and speed, safe
-connect, the profile hotkey, and PS5 & account.
+connect, the profile hotkey, the gaming settings (below), and PS5 & account. The profile hotkey
+and the mouse capture key can't be bound in a profile.
+
+### Gaming: WASD and mouse
+
+Press **F1** (or click **Start gaming / Capture mouse** on the Remote tab) and play like a PC
+game: WASD moves the left stick, the mouse turns the right stick. If the current profile is a
+menu profile (e.g. "Menus"), F1 first switches to the **Gaming** profile and says so in the
+log. The window hides the pointer while the mouse is captured. **Esc** or **F1** releases it
+(the profile stays on Gaming; switch back with F2 or the dropdown), and so do switching to
+another window and minimising.
+
+Unlike the menu profiles, a gaming profile holds buttons down for as long as you hold the key,
+and the first key press (or capturing the mouse) connects. The PS5 still blanks streaming-app
+video while connected, as in Browse mode.
+
+| Input | Does | Input | Does |
+|---|---|---|---|
+| W A S D | Left stick (W+D is a normalised diagonal) | Mouse | Right stick |
+| Left Alt (held) | Walk: left stick at half tilt | Arrow keys | D-pad |
+| Space | Cross | C | Circle |
+| E | Square | R | Triangle |
+| Left Shift | L3 | V | R3 |
+| Q / wheel down | L1 | F / wheel up | R1 |
+| Right click | L2 | Left click | R2 |
+| Tab | Touchpad | Enter | Options |
+| Esc | Release the mouse | F1 | Capture / release the mouse |
+
+Mouse buttons and the wheel only act while the mouse is captured; otherwise they click the
+window as usual. Everything is remappable in the Keys tab. A **Light L2/R2** action is
+available but unbound: while its key is held, L2/R2 press only part way.
+
+**How the mouse becomes a stick.** The stick follows the mouse's *speed*, not its position:
+moving at 2000 counts a second (at sensitivity 1.0) is full tilt, and when the mouse stops the
+stick returns to centre. Settings (Settings tab → Gaming):
+
+| Setting | Default | What it does |
+|---|---|---|
+| Sensitivity X / Y | 1.0 / 1.0 | Higher turns faster for the same hand movement |
+| Response curve | Linear | Exponential makes small movements finer and big ones the same |
+| Outer limit | 1.0 | The most the stick tilts |
+| Anti-deadzone | 0 | The least tilt for any movement, to get past the game's own deadzone |
+| Smoothing | 35 ms | Movement is averaged over this long: higher is steadier but lags more |
+| Return to centre | 60 ms | How quickly the stick re-centres once the mouse stops |
+| Invert Y | Off | Mouse forward looks down |
+| Walk tilt | 0.5 | Left-stick tilt while Walk is held |
+| Light trigger | 0.4 | L2/R2 pressure while Light L2/R2 is held |
+| Stick updates per second | 120 | Up to 125 (chiaki-ng's limit) |
+| Mouse capture key | F1 | |
+
+**Nothing gets stuck.** Everything is released and both sticks are centred when the mouse is
+released, the window loses focus or is minimised, the window closes, the profile changes, or
+the session drops. After a drop the app also releases the mouse and says so; the next key press
+or F1 reconnects. Taps and held buttons go out as soon as they happen; stick positions go out
+at the update rate and are resent every 200 ms.
+
+**Not confirmed on a real PS5 yet:** pointer lock inside the app window (it's Edge WebView2,
+which supports it), analog L2/R2, L3/R3/Touchpad, and the new event format for the PS button
+and Options. See the test plan below. If the window ever refuses to capture the mouse, the log
+says so, and `.\ps5.bat app --browser` (Chrome or Edge) is the fallback.
+
+#### Gaming test plan
+
+Run `.\ps5.bat app` so the log shows in the terminal too. Note your mouse's DPI if you know it.
+
+1. **Visualiser, no PS5 needed** (works even before setup, or with the PS5 off):
+   1. Choose the Gaming profile. Hold W, then W+D: the left dot goes up, then up-right at
+      **0.71, 0.71**. Add Left Alt: it halves (0.35, 0.35). A+D together: centre.
+   2. Press F1. The pointer disappears and the green "Mouse captured" bar shows. If not, note
+      the log message. Then try `.\ps5.bat app --browser` and note whether that one works.
+   3. Move the mouse slowly, then fast, in circles: the right dot follows the movement
+      direction and returns to centre when you stop. Hold the mouse still with a button held:
+      the dot stays centred.
+   4. Left click: R2 bar fills and "Held: R2" shows. Right click: L2. Scroll: nothing stays held.
+   5. While holding W and left click: press Esc, then repeat with Alt+Tab, then with minimise.
+      Each time, every bar and dot must go back to zero, and "No buttons held" shows.
+   6. Press the browser back/forward mouse buttons (if you have them): the page must not change.
+2. **On the PS5, menus first:** on the PS5 home screen, press the on-screen **PS** button and
+   **Options** (this checks the new button format), then L3, R3 and Touchpad in a game.
+3. **In a game, with a third-person or first-person camera:**
+   1. **Movement:** walk forward with W, diagonally with W+D (should be the same speed as W),
+      and slowly with Left Alt held.
+   2. **Sprint:** Left Shift (L3) while moving, if the game sprints on L3.
+   3. **Camera:** capture the mouse and turn left/right slowly, then quickly. Then do a full
+      360° turn at a steady hand speed.
+   4. **Tuning:** if slow mouse movement does nothing, raise **Anti-deadzone** in steps of
+      0.05 until it just starts turning. If turning is too slow/fast overall, change
+      **Sensitivity X**; adjust Y to taste. If aiming feels twitchy, try **Exponential** or more
+      **Smoothing**. If the camera drifts after you stop, lower **Return to centre**.
+   5. **Triggers:** aim (L2 on right click) and shoot (R2 on left click). Bind Light L2/R2 to a
+      key and check partial trigger presses (e.g. a half-pull in a racing game).
+   6. **Focus loss:** while running forward and holding a trigger, Alt+Tab away. The character
+      must stop and the trigger release. Come back, press F1, carry on.
+   7. **Session drop:** while playing, unplug the PC's network (or turn off Wi-Fi) for ~10 s.
+      The app must say the session was lost and release the mouse. Reconnect and press a key.
+
+**Please report back:** the game(s) tested; whether pointer lock worked in the window and in
+`--browser`; whether PS/Options/L3/R3/Touchpad worked; whether analog L2/R2 worked part way;
+the Sensitivity X/Y, Anti-deadzone, Curve, Smoothing and Return values that felt right (and
+your mouse DPI); any input lag you noticed; whether anything stayed held after Esc, Alt+Tab or
+a drop; and the "Connected in N s" time.
 
 ### Where data is kept
 
@@ -292,7 +418,9 @@ folder. To see the first run again, delete `%APPDATA%\PS5Remote`.
 The .exe accepts the same options, e.g. `dist\PS5Remote-personal.exe --setup`, but it has no
 terminal to show logs in. With `--browser`, sign-in always uses the paste method.
 
-Logs never contain keys, tokens, sign-in codes or the PIN. pyremoteplay is held at INFO level
+`logs\app.log` also records what the window's message line shows (connecting, connected,
+errors, dropped sessions), so a problem can be checked afterwards. Logs never contain keys,
+tokens, sign-in codes or the PIN. pyremoteplay is held at INFO level
 even with `--debug`, because it logs keys at DEBUG. Every log line also passes through a filter
 that blanks `code=`, `token=`, `pin=` and `client_secret` values and this run's session token.
 
@@ -366,7 +494,7 @@ Checked on 2026-10-09:
 | Check | Result |
 |---|---|
 | App server reachable from other devices | **No.** It listens on 127.0.0.1 only (tested from the PC's LAN address) |
-| Controlling it without the session token | **Refused.** The WebSocket needs a random per-run token, the right Origin, and a local Host header. 28 server tests + 30 wizard tests |
+| Controlling it without the session token | **Refused.** The WebSocket needs a random per-run token, the right Origin, and a local Host header (`tests/test_server.py`) |
 | Credentials in the interface, logs, code, build or .exe | **None.** The account ID, sign-in code and PIN never reach the interface or the logs (tested). The public .exe contains no Sony values |
 | Sony sign-in values in the source or git history | **None.** You supply your own gitignored `psn_client.json` (see "PSN sign-in values") |
 | Stored PSN access token | **None.** Only the account ID and pairing keys are stored |
@@ -395,6 +523,34 @@ the firewall doesn't filter.
 **If Windows shows "Windows Security has blocked some features of this app" for PS5Remote:**
 tick **Private networks** only, **untick Public networks**, and click **Allow access**. Clicking
 **Cancel** is also fine: the app works without it, except possibly the network search.
+
+## Tests
+
+```powershell
+.\test.bat                         # the whole suite, about 10 s
+.\test.bat tests\test_server.py    # one file (any pytest options work)
+```
+
+The tests run offline: no PS5, PSN account or network is needed. A fake PS5 session stands in
+for the console, and every test uses its own empty temporary data folder, so your real `data\`
+(pairing keys, `psn_client.json`) is never read or changed.
+
+| File | Covers |
+|---|---|
+| `test_server.py` | App server security (Host, token, Origin, CSP headers, static files), WebSocket messages, presses and hold/release, gaming input and the visualiser (also without a PS5), neutral state on window close / capture release / session drop, settings, hotkeys and key-map saving, no secrets in what the interface receives |
+| `test_wizard.py` | Setup wizard steps and errors; nothing saved until pairing succeeds; the account ID and sign-in code never reach the interface |
+| `test_remote.py` | Connect, auto-wake, retries (fatal / busy / ordinary), the ~9 s reuse gap, hold-to-repeat, dropped-session and idle detection, bursts, rest mode, held gaming state (sent on connect, released on close, not idle while held), stick rate limit and resend |
+| `test_gamepad.py` | The controller wire format (byte for byte, as chiaki-ng), event history, analog triggers, stick scaling, rate limit and 200 ms resend |
+| `test_gameinput.py` | WASD diagonals, walk, light trigger, mouse-to-stick maths (sensitivity, curve, limits, anti-deadzone, invert, smoothing, return to centre, steady output from 60 Hz mouse reports) |
+| `test_rpsession.py` | Control-message framing, 16-bit types, session ID, heartbeats, the protected-content state machine, skipped network test |
+| `test_ps5.py`, `test_psn.py` | Error explanations, pairing failures, sign-in value lookup order, code extraction, account-ID encoding |
+| `test_config.py`, `test_settings.py`, `test_keymaps.py`, `test_appmaps.py` | Data folder, migration, settings and key-map validation (incl. gaming settings, mouse/wheel bindings, the Gaming profile, converting old key maps), streaming-app matching |
+| `test_watch.py` | Benched Watch-mode logic (batching, toggles cancelling out, smart play, post-wait test) |
+| `test_redact.py` | Log redaction of codes, tokens, PINs and secrets |
+
+What they can't cover: real PS5 behaviour (timing, firmware responses, the picture blanking,
+how a game reacts to the sticks), Sony's sign-in, and the pywebview window (including mouse
+capture). Those still need a manual check, e.g. the [gaming test plan](#gaming-test-plan).
 
 ## Benched: Watch mode
 

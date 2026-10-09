@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import math
 import secrets
 import sys
 import time
@@ -19,6 +20,8 @@ from aiohttp import WSMsgType, web
 
 from .. import appmaps, config, keymaps, ps5, rpsession
 from .wizard import SetupWizard
+from ..gamepad import CENTRE
+from ..gameinput import ACTIONS, GameInput
 from ..remote import BUTTONS, REPEATABLE, Remote
 from ..settings import AppSettings
 
@@ -29,6 +32,9 @@ WEB_DIR = config.RESOURCES / "web" if getattr(sys, "frozen", False) else Path(__
 STATUS_POLL_S = 3.0
 TICK_S = 0.5
 MAX_MESSAGE_BYTES = 64 * 1024
+PAD_VIEW_S = 1 / 30        # stick visualiser update rate
+GAME_IDLE_S = 0.05         # game loop tick when nothing is held or captured
+MAX_MOUSE_STEP = 20_000    # ignore absurd mouse deltas
 CSP = ("default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; "
        "connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'")
 
@@ -40,16 +46,22 @@ class AppServer:
         self.port = port
         self.token = secrets.token_urlsafe(32)
         self.settings = AppSettings.load()
-        self.keymaps = keymaps.load({self.settings.profile_hotkey})
+        self.keymaps = keymaps.load(self.settings.hotkeys())
         self.clients: set[web.WebSocketResponse] = set()
         self.remote: Remote | None = None
         self.setup_error = ""
+        self.game = GameInput()
         self._held: str | None = None
         self._tasks: set[asyncio.Task] = set()
         self._status = {"power": "unknown", "app": "", "connected": False,
                         "free_in": 0, "streaming_app": "", "busy": ""}
         self._runner: web.AppRunner | None = None
         self._poller: asyncio.Task | None = None
+        self._game_loop_task: asyncio.Task | None = None
+        self._pad: tuple | None = None
+        self._pad_shown: tuple | None = None
+        self._game_connecting = False
+        self._game_retry_at = 0.0
         self._make_remote()
         self.wizard = SetupWizard(self, open_login, force=force_setup)
 
@@ -67,11 +79,15 @@ class AppServer:
     def _apply_settings(self) -> None:
         s = self.settings
         rpsession.EARLY_SESSION_ID = None if s.safe_connect else 0.3
+        self.game.mouse.settings = s.mouse()
+        self.game.walk_tilt = s.walk_tilt
+        self.game.light_trigger = s.light_trigger
         if self.remote:
             self.remote.press_s = s.press_ms / 1000
             self.remote.idle_timeout = s.idle_timeout_min * 60 or None
             self.remote.repeat_delay = s.repeat_delay_ms / 1000
             self.remote.repeat_interval = s.repeat_interval_ms / 1000
+            self.remote.stick_hz = s.stick_hz
 
     def reload_remote(self) -> None:
         """Start using a new pairing (after pairing or copying old data)."""
@@ -82,6 +98,7 @@ class AppServer:
 
     def forget_pairing(self) -> None:
         """Deletes pairing keys, account ID and PS5 address; keeps settings and key maps."""
+        self.game.neutral()
         if self.remote:
             self.remote.close()
         self.remote, self.setup_error = None, "Not set up yet."
@@ -114,12 +131,14 @@ class AppServer:
         await site.start()
         self.port = site._server.sockets[0].getsockname()[1]  # pylint: disable=protected-access
         self._poller = asyncio.create_task(self._poll())
+        self._game_loop_task = asyncio.create_task(self._game_loop())
         _LOGGER.info("App server listening on %s:%s", self.host, self.port)  # no token
         return self.url
 
     async def stop(self) -> None:
-        if self._poller:
-            self._poller.cancel()
+        for task in (self._poller, self._game_loop_task):
+            if task:
+                task.cancel()
         for task in list(self._tasks):
             task.cancel()
         if self.remote:
@@ -172,7 +191,11 @@ class AppServer:
         finally:
             self.clients.discard(ws)
             if not self.clients:
-                await self._release()  # window closed mid-hold: never leave a button held
+                # Window closed mid-hold: never leave a button held or a stick tilted.
+                await self._release()
+                self.game.set_captured(False)
+                self.game.neutral()
+                self._game_update()
         return ws
 
     async def _handle(self, ws: web.WebSocketResponse, data: dict) -> None:
@@ -182,7 +205,9 @@ class AppServer:
         if kind == "hello":
             await self._send(ws, {"type": "init", "settings": self.settings.to_dict(),
                                   "keymaps": self.keymaps, "buttons": list(BUTTONS),
-                                  "repeatable": sorted(REPEATABLE), "build": self.build_info()})
+                                  "actions": list(ACTIONS), "repeatable": sorted(REPEATABLE),
+                                  "build": self.build_info()})
+            await self._send(ws, {"type": "pad", **self._pad_view()})
             await self._send(ws, {"type": "setup", **self.wizard.public_state()})
             await self._send(ws, {"type": "status", **self._status_payload()})
         elif kind.startswith("setup_") or kind in ("migrate", "forget_all"):
@@ -197,6 +222,32 @@ class AppServer:
                 self._spawn(self._hold(button))
             else:
                 await self._release(button)
+        elif kind == "act":
+            action, down = data.get("action"), data.get("down")
+            if action not in ACTIONS or not isinstance(down, bool):
+                return await self._send(ws, {"type": "error", "message": "Unknown action"})
+            self.game.set(action, down)
+            if down:
+                self._game_retry_at = 0.0  # a new press may try connecting again
+            self._game_update()
+        elif kind == "mouse":
+            dx, dy = data.get("dx"), data.get("dy")
+            if not all(isinstance(v, (int, float)) and not isinstance(v, bool)
+                       and abs(v) <= MAX_MOUSE_STEP for v in (dx, dy)):
+                return await self._send(ws, {"type": "error", "message": "Bad mouse movement"})
+            self.game.add_mouse(dx, dy)
+        elif kind == "capture":
+            on = data.get("on") is True
+            self.game.set_captured(on)
+            if on:
+                self._game_retry_at = 0.0
+                self._connect_for_game()
+            else:
+                self.game.neutral()  # released: centre both sticks, release everything
+            self._game_update()
+        elif kind == "neutral":
+            self.game.neutral()
+            self._game_update()
         elif kind == "wake":
             self._spawn(self._wake())
         elif kind == "rest":
@@ -280,8 +331,9 @@ class AppServer:
     async def _save_settings(self, data) -> None:
         try:
             new = AppSettings.from_dict(data if isinstance(data, dict) else {})
-            if new.profile_hotkey in self._all_bound_keys():
-                raise ValueError(f"{new.profile_hotkey} is already used in a key map.")
+            clash = sorted(new.hotkeys() & self._all_bound_keys())
+            if clash:
+                raise ValueError(f"{clash[0]} is already used in a key map.")
         except ValueError as err:
             return await self.event("error", f"Settings not saved: {err}")
         self.settings = new
@@ -291,11 +343,11 @@ class AppServer:
         await self.event("info", "Settings saved.")
 
     def _all_bound_keys(self) -> set[str]:
-        return {k for p in self.keymaps["profiles"].values() for k in p.values() if k}
+        return {k for p in self.keymaps["profiles"].values() for k in p["bindings"]}
 
     async def _save_keymaps(self, data) -> None:
         try:
-            clean = keymaps.validate(data, {self.settings.profile_hotkey})
+            clean = keymaps.validate(data, self.settings.hotkeys())
         except ValueError as err:
             return await self.event("error", f"Key maps not saved: {err}")
         self.keymaps = clean
@@ -303,10 +355,72 @@ class AppServer:
         await self.broadcast({"type": "keymaps", "keymaps": clean})
 
     def _on_remote_event(self, kind: str, message: str) -> None:
+        if kind in ("dropped", "disconnected") and (self.game.captured or not self.game.is_neutral):
+            # Whatever was held is gone on the PS5: make the interface let go too.
+            self.game.set_captured(False)
+            self.game.neutral()
+            self._game_update()
+            self._spawn(self.broadcast({"type": "game_reset", "reason": kind}))
         self._spawn(self.event(kind, message))
         self._spawn(self._push_status())
 
+    # Gaming input ----------------------------------------------------------------------
+
+    def _game_update(self) -> None:
+        """Send the current gaming state to the PS5 (if it changed) and connect if needed."""
+        pad = (self.game.buttons(), *self.game.sticks())
+        if pad == self._pad:
+            return
+        self._pad = pad
+        if self.remote:
+            self.remote.set_game(*pad)
+        if pad[0] or pad[1] != CENTRE or pad[2] != CENTRE:
+            self._connect_for_game()
+
+    def _connect_for_game(self) -> None:
+        remote = self.remote
+        if (not remote or remote.connected or self._game_connecting
+                or time.monotonic() < self._game_retry_at):
+            return
+        self._game_connecting = True
+
+        async def go():
+            try:
+                await self._guarded(remote.connect(), "Connecting to the PS5...")
+            finally:
+                self._game_connecting = False
+                if not remote.connected:
+                    # Mouse movement alone doesn't retry; a key press or F1 does.
+                    self._game_retry_at = math.inf
+        self._spawn(go())
+
+    async def _game_loop(self) -> None:
+        """Ticks the mouse stick at the stick rate and feeds the visualiser."""
+        shown_at = 0.0
+        while True:
+            try:
+                active = self.game.captured or not self.game.is_neutral
+                self.game.tick()
+                self._game_update()
+                pad = self._pad_view()
+                now = time.monotonic()
+                if pad != self._pad_shown and now - shown_at >= PAD_VIEW_S:
+                    self._pad_shown, shown_at = pad, now
+                    await self.broadcast({"type": "pad", **pad})
+            except Exception:  # pylint: disable=broad-except
+                _LOGGER.exception("Game loop failed")
+                active = False
+            await asyncio.sleep(1 / self.settings.stick_hz if active else GAME_IDLE_S)
+
+    def _pad_view(self) -> dict:
+        buttons, left, right = self._pad or ({}, CENTRE, CENTRE)
+        return {"left": [round(v, 3) for v in left], "right": [round(v, 3) for v in right],
+                "buttons": dict(sorted(buttons.items())), "captured": self.game.captured}
+
     async def event(self, kind: str, message: str) -> None:
+        # Also in logs\app.log, so what happened can be checked afterwards (no secrets in these).
+        _LOGGER.log(logging.WARNING if kind in ("error", "dropped") else logging.INFO,
+                    "%s: %s", kind, message)
         await self.broadcast({"type": "event", "kind": kind, "message": message,
                                "time": time.strftime("%H:%M:%S")})
 

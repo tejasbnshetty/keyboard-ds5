@@ -10,7 +10,7 @@ Events are reported through on_event(kind, message), where kind is one of:
   "display"       the PS5 switched to/from protected content (see protected_content)
 
 Live use: tap()/hold() connect on demand and keep the session open. Burst use (watch.py):
-open_burst(), press(), end_burst().
+open_burst(), press(), end_burst(). Gaming: set_game() holds buttons and sets the sticks.
 """
 from __future__ import annotations
 
@@ -20,15 +20,17 @@ import time
 from typing import Callable
 
 from . import config, ps5
+from .gamepad import CENTRE, PadSender, Stick
 
 _LOGGER = logging.getLogger(__name__)
 
-# Our button names -> pyremoteplay FeedbackEvent.Type names.
+# Our button names -> display names (as pyremoteplay's FeedbackEvent.Type names them).
 BUTTONS = {
     "up": "UP", "down": "DOWN", "left": "LEFT", "right": "RIGHT",
     "cross": "CROSS", "circle": "CIRCLE", "triangle": "TRIANGLE", "square": "SQUARE",
     "options": "OPTIONS", "ps": "PS",
     "l1": "L1", "r1": "R1", "l2": "L2", "r2": "R2",
+    "l3": "L3", "r3": "R3", "touchpad": "TOUCHPAD",
 }
 REPEATABLE = {"up", "down", "left", "right"}
 
@@ -43,6 +45,8 @@ WATCH_INTERVAL = 2.0
 MISSED_POLLS = 2
 # The PS5 refuses new sessions for ~9 s after any session ends (measured 9.2-10.9 s).
 REUSE_DELAY = 9.5
+KEEPALIVE_S = 0.05       # how often the held state is re-checked (resent every 200 ms)
+DEFAULT_STICK_HZ = 120
 
 
 def check_button(name: str) -> str:
@@ -66,7 +70,13 @@ class Remote:
         self._device: ps5.Device | None = None
         self._lock = asyncio.Lock()
         self._watchdog: asyncio.Task | None = None
+        self._keepalive: asyncio.Task | None = None
         self._hold: asyncio.Task | None = None
+        self._sender: PadSender | None = None
+        self._tap_buttons: dict[str, int] = {}
+        self._game_buttons: dict[str, int] = {}
+        self._sticks: tuple[Stick, Stick] = (CENTRE, CENTRE)
+        self.stick_hz = DEFAULT_STICK_HZ
         self._dropped_recently = False
         self._session_live = False
         self._last_activity = time.monotonic()
@@ -166,6 +176,7 @@ class Remote:
             attempt += 1
             try:
                 await self._open_session()
+                self._start_sending()
                 self.last_connect_s = time.monotonic() - start
                 self._emit("connected", f"Connected in {self.last_connect_s:.1f}s")
                 self._watchdog = asyncio.create_task(self._watch())
@@ -209,7 +220,48 @@ class Remote:
             raise
         self._session_live = True
         self._last_activity = time.monotonic()
-        device.controller.start()
+        # pyremoteplay's Controller thread is not started: gamepad.PadSender sends instead.
+
+    def _start_sending(self) -> None:
+        device = self._device
+        self._sender = PadSender(
+            lambda *args, **kwargs: device.session.stream.send_feedback(*args, **kwargs))
+        self.flush()  # the held state, e.g. keys pressed while connecting
+        self._keepalive = asyncio.create_task(self._keep_sending())
+
+    async def _keep_sending(self) -> None:
+        while self.connected:
+            await asyncio.sleep(KEEPALIVE_S)
+            self.flush()
+
+    def flush(self) -> None:
+        """Send whatever changed in the wanted controller state (event loop only)."""
+        if not self._sender or not self.connected:
+            return
+        buttons = dict(self._game_buttons)
+        buttons.update(self._tap_buttons)
+        try:
+            self._sender.sync(buttons, *self._sticks, min_interval=1 / self.stick_hz)
+        except Exception:  # pylint: disable=broad-except
+            _LOGGER.debug("Couldn't send controller state", exc_info=True)
+
+    def set_game(self, buttons: dict[str, int], left: Stick, right: Stick) -> None:
+        """Gaming input: these buttons held (name -> 1-255) and these stick positions."""
+        self._game_buttons = dict(buttons)
+        self._sticks = (left, right)
+        if buttons or left != CENTRE or right != CENTRE:
+            self._last_activity = time.monotonic()
+        self.flush()
+
+    @property
+    def game_active(self) -> bool:
+        return bool(self._game_buttons) or self._sticks != (CENTRE, CENTRE)
+
+    def neutral(self) -> None:
+        """Release every button and centre both sticks."""
+        self._game_buttons, self._tap_buttons = {}, {}
+        self._sticks = (CENTRE, CENTRE)
+        self.flush()
 
     async def tap(self, button: str) -> float:
         """Press and release a button, connecting (and waking) first if needed.
@@ -224,15 +276,14 @@ class Remote:
 
     async def _tap_now(self, button: str) -> None:
         self._last_activity = time.monotonic()
-        controller = self._device.controller
-        name = BUTTONS[button]
-        controller.button(name, "press")
+        self._tap_buttons[button] = 255
+        self.flush()
         try:
             await asyncio.sleep(self.press_s)
         finally:
             # Release even if cancelled mid-press, so no button is left held down.
-            if self.connected:
-                controller.button(name, "release")
+            self._tap_buttons.pop(button, None)
+            self.flush()
 
     async def hold(self, button: str) -> None:
         """Tap now, then repeat until stop_hold()."""
@@ -275,6 +326,7 @@ class Remote:
                 raise ps5.PS5Error("The PS5 is in rest mode. Switch to Browse mode to wake it.")
             start = time.monotonic()
             await self._open_session()
+            self._start_sending()
             self.last_connect_s = time.monotonic() - start
             return self.last_connect_s
 
@@ -320,6 +372,8 @@ class Remote:
             if session.is_stopped:
                 return self._dropped(session.error or "the PS5 ended the session")
             idle = time.monotonic() - self._last_activity
+            if self.game_active:
+                idle = 0.0  # a key or stick still held: not idle
             if self.idle_timeout and idle > self.idle_timeout and not self._hold:
                 self._watchdog = None  # running inside it: don't cancel ourselves
                 self._teardown_session()
@@ -346,6 +400,15 @@ class Remote:
         if self._watchdog and self._watchdog is not asyncio.current_task():
             self._watchdog.cancel()
         self._watchdog = None
+        if self._keepalive and self._keepalive is not asyncio.current_task():
+            self._keepalive.cancel()
+        self._keepalive = None
+        if self._device:
+            # A session is ending: release everything on the PS5 if it can still hear us,
+            # and start the next session neutral. (No session: keep what's held, e.g. keys
+            # pressed while connecting.)
+            self.neutral()
+        self._sender = None
         device, self._device = self._device, None
         if self._session_live:
             self._session_live = False
