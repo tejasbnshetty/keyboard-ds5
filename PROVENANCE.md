@@ -79,8 +79,11 @@ This applies to anyone who distributes this project.
 - **pyps4-2ndscreen (LGPL):** fine, as long as its source is available and it can be replaced.
 - **Not a licence issue, but a risk:** the PSN client ID/secret and the Remote Play protocol are
   Sony's. Publishing the client values, or an app containing them, may conflict with Sony's
-  terms. This repository doesn't contain them. The public build (`build.bat public`) leaves them
-  out; a personal build (`PS5Remote-personal.exe`) contains the builder's own values and must
-  never be distributed.
+  terms. This repository doesn't contain them, and this app never uses pyremoteplay's built-in
+  copy. But pyremoteplay's source (`pyremoteplay/oauth.py`) does contain them, and every
+  PyInstaller build bundles pyremoteplay, so **distributing any .exe also distributes those
+  values**. The public build (`build.bat public`) doesn't add the builder's own
+  `psn_client.json`; a personal build (`PS5Remote-personal.exe`) does, and must never be
+  distributed.
 - With any .exe release, include `LICENSE`, this file, and the third-party licence notices of the
   bundled dependencies.

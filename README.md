@@ -232,18 +232,30 @@ Each press holds the button for 80 ms. If presses are sometimes missed, raise it
 
 Pairing needs your PSN account ID, which is read by signing in to PSN through Sony's Remote
 Play sign-in page. That page requires an OAuth client ID and secret. **This project doesn't
-include them**: they aren't in the source code or the git history. Only use values you're
-entitled to use.
+include them**: they aren't in its source code or git history, and you add them yourself.
+
+**Where to find them.** Sony doesn't issue these to individuals. They are the official PS
+Remote Play app's values, and open-source Remote Play clients include them in their source:
+- [pyremoteplay](https://github.com/ktnrg45/pyremoteplay): `pyremoteplay/oauth.py`
+  (`__CLIENT_ID` and `__CLIENT_SECRET`). After running `.\setup.bat` you already have this file
+  at `.venv\Lib\site-packages\pyremoteplay\oauth.py`. Its secret is **base64-encoded**: use
+  the `client_secret_base64` field below.
+- [chiaki-ng](https://github.com/streetpea/chiaki-ng): `gui/include/psnaccountid.h`.
+
+Using them is subject to Sony's terms; see the disclaimer at the top.
 
 **Option 1: a `psn_client.json` file (recommended).** Copy `psn_client.example.json` to
 `psn_client.json` in your data folder (see [Your data](#your-data)), and fill in:
 
 ```json
 {
-  "client_id": "<your client ID>",
-  "client_secret": "<your client secret>"
+  "client_id": "<client ID>",
+  "client_secret": "<client secret>"
 }
 ```
+
+If your secret is base64-encoded (as in pyremoteplay), use `"client_secret_base64":
+"<encoded secret>"` instead of `"client_secret"`. The app decodes it.
 
 **Option 2: environment variables**
 
@@ -259,7 +271,8 @@ explains what's missing. `psn_client.json` is gitignored. Never commit or share 
 ## Building the .exe
 
 You can package the app as a single `PS5Remote.exe` that runs without Python or a terminal:
-handy for a desktop shortcut, or for running it on another PC.
+handy for a desktop shortcut, or for running it on another PC. No prebuilt downloads are
+published, so build it yourself from the source.
 
 1. **Do the [Quick start](#quick-start) steps 1 and 2** (Python and `.\setup.bat`). Setup
    installs PyInstaller, which does the packaging.
@@ -283,6 +296,10 @@ handy for a desktop shortcut, or for running it on another PC.
 your sign-in values, says "personal build" in its title bar, and must never be shared or
 uploaded (`dist\` and `*-personal.exe` are gitignored). If there's no `data\psn_client.json`,
 `build.bat` makes a public build instead. Neither build contains pairing data.
+
+Note that every build, public or personal, bundles the pyremoteplay library, and its source
+contains its own copy of the sign-in values. This app never uses that copy, but anyone
+distributing a build is distributing those values too.
 
 **Good to know:**
 - The .exe accepts the same options as `.\ps5.bat app` (e.g. `PS5Remote.exe --setup`), and

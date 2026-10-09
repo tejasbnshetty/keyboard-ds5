@@ -5,7 +5,8 @@ discarded; only the account ID and online ID are kept.
 OAuth flow, scopes and redirect as in chiaki-ng (gui/include/psnaccountid.h). The client
 ID/secret are not in the source: they come from env vars PS5REMOTE_PSN_CLIENT_ID /
 PS5REMOTE_PSN_CLIENT_SECRET, or psn_client.json in the data folder, the source data/ folder,
-or a personal .exe. See psn_client.example.json.
+or a personal .exe. psn_client.json takes the secret as "client_secret", or base64-encoded as
+"client_secret_base64". See psn_client.example.json.
 """
 from __future__ import annotations
 
@@ -46,9 +47,13 @@ def _client() -> tuple[str, str] | None:
         if path.is_file():
             try:
                 data = json.loads(path.read_text(encoding="utf-8"))
-                if data.get("client_id") and data.get("client_secret"):
-                    return data["client_id"], data["client_secret"]
-            except (OSError, ValueError):
+                secret = data.get("client_secret")
+                if not secret and data.get("client_secret_base64"):
+                    # As some open-source clients store it.
+                    secret = base64.b64decode(data["client_secret_base64"], validate=True).decode()
+                if data.get("client_id") and secret:
+                    return data["client_id"], secret
+            except (OSError, ValueError, TypeError):
                 continue
     return None
 
