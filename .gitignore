@@ -1,0 +1,11 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# Local secrets and state: PSN account ID, PS5 pairing keys, access PIN
+data/
+
+# Logs
+logs/
+*.log
