@@ -1,8 +1,5 @@
 # SPDX-License-Identifier: AGPL-3.0-only
-"""PS5 operations built on pyremoteplay: discover, status, pair, wake.
-
-The Remote Play session used for buttons and rest mode lives in remote.py.
-"""
+"""PS5 discovery, status, pairing and wake, built on pyremoteplay."""
 from __future__ import annotations
 
 import asyncio
@@ -19,7 +16,6 @@ from .rpsession import FastSession
 
 _LOGGER = logging.getLogger(__name__)
 
-# State names shown to the user
 UNREACHABLE = "unreachable"
 ASLEEP = "asleep"
 AWAKE = "awake"
@@ -30,11 +26,10 @@ class PS5Error(Exception):
 
 
 class SessionBusy(PS5Error):
-    """The PS5 refused a new session because the previous one hasn't been freed yet.
-    It takes ~9 s after any session ends, however cleanly it ended."""
+    """The PS5 hasn't freed the previous session yet (takes ~9 s after any session ends)."""
 
 
-# Remote Play rejection codes (RP-Application-Reason) that pyremoteplay doesn't name.
+# RP-Application-Reason codes that pyremoteplay doesn't name.
 REJECT_HINTS = {
     0x80108B12: (
         "The PS5 refused the connection because Remote Play isn't enabled for your account. "
@@ -45,7 +40,6 @@ REJECT_HINTS = {
     0x80108B15: "Remote Play crashed on the PS5. Restart the PS5 and try again.",
     0x80108B02: "This PSN account isn't a user on that PS5. Run .\\ps5.bat login with the right account.",
 }
-# Rejections that retrying won't fix.
 FATAL_CODES = {0x80108B12, 0x80108B02}
 
 
@@ -61,19 +55,19 @@ def is_fatal(reason: str) -> bool:
 
 
 def use_windows_event_loop() -> None:
-    """pyremoteplay's sockets need the selector event loop on Windows (its own GUI does this)."""
+    """pyremoteplay's sockets need the selector event loop on Windows."""
     if sys.platform == "win32":
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
 
 def quiet_library_logs(verbose: bool = False) -> None:
-    """pyremoteplay logs pairing keys at DEBUG level, so never let it go below INFO."""
+    """pyremoteplay logs pairing keys at DEBUG, so never go below INFO."""
     logging.getLogger("pyremoteplay").setLevel(logging.INFO if verbose else logging.WARNING)
 
 
 class Device(RPDevice):
-    """RPDevice that skips the PlayStation Store lookup pyremoteplay does whenever a game is
-    running (an internet request we don't need, which also misbehaves outside an event loop)."""
+    """Skips pyremoteplay's PlayStation Store lookup for the running game (an unneeded
+    internet request that also fails outside an event loop)."""
 
     def _set_status(self, data: dict):
         if data:
@@ -81,7 +75,7 @@ class Device(RPDevice):
         super()._set_status(data)
 
     def create_session(self, user: str, profiles=None, **_ignored):
-        """Like RPDevice.create_session, but with our patched session (see rpsession.py)."""
+        # Adapted from pyremoteplay RPDevice.create_session (GPL-3.0), using FastSession.
         if self.session and not self.session.is_stopped:
             _LOGGER.error("Running session already exists. Disconnect first.")
             return None
@@ -103,18 +97,17 @@ def is_ipv4(text: str) -> bool:
 
 
 def discover(timeout: int = 3) -> list[dict]:
-    """Broadcast on the local network and return PS5 status dicts."""
     with _status_lock:  # also uses UDP port 9303
         found = ddp.search(timeout=timeout)
     return [d for d in found if d.get("host-type", "").upper() == "PS5"]
 
 
-# Status queries bind local UDP port 9303 (the PS5 expects it), so run them one at a time.
+# Status queries bind local UDP port 9303 (the PS5 expects it): one at a time.
 _status_lock = threading.Lock()
 
 
 def get_status(host: str) -> dict:
-    """Return the console's discovery status, or {} if it didn't answer."""
+    """The console's discovery status, or {} if it didn't answer."""
     with _status_lock:
         return ddp.get_status(host) or {}
 
@@ -162,8 +155,7 @@ def pair(pin: str) -> None:
 
 
 class _Capture(logging.Handler):
-    """Collects pyremoteplay's register errors so we can explain them (ERROR level only:
-    its DEBUG messages contain keys)."""
+    """Collects pyremoteplay's register errors (ERROR only: its DEBUG messages contain keys)."""
 
     def __init__(self):
         super().__init__(level=logging.ERROR)
@@ -174,9 +166,7 @@ class _Capture(logging.Handler):
 
 
 def pair_console(host: str, user: str, pin: str, account_id: str | None = None) -> None:
-    """Pair with the PS5 at `host`. Nothing is saved unless pairing succeeds, so a failed or
-    abandoned re-pair leaves the existing pairing untouched.
-    account_id: a freshly signed-in account not saved yet (setup wizard)."""
+    """Nothing is saved unless pairing succeeds. account_id: a new, unsaved sign-in."""
     if not (pin.isdigit() and len(pin) == 8):
         raise PS5Error("The PIN must be exactly 8 digits.")
     profiles = config.profiles()
@@ -196,7 +186,7 @@ def pair_console(host: str, user: str, pin: str, account_id: str | None = None) 
     reg_log = logging.getLogger("pyremoteplay.register")
     reg_log.addHandler(capture)
     try:
-        # register() runs its own status query on UDP 9303; keep the app's poller off it.
+        # register() runs its own status query on UDP 9303.
         with _status_lock:
             profile = device.register(user, pin, timeout=5.0, profiles=profiles, save=False)
     except OSError as err:
@@ -220,7 +210,7 @@ def pair_console(host: str, user: str, pin: str, account_id: str | None = None) 
 
 
 def send_wake() -> bool:
-    """Send the wake packet. Returns False if the PS5 was already awake. Doesn't wait."""
+    """Returns False if the PS5 was already awake. Doesn't wait."""
     host, user = require_setup()
     profiles = config.profiles()
     device = _device(host)
@@ -232,7 +222,6 @@ def send_wake() -> bool:
 
 
 def wake(timeout: float = 45.0) -> bool:
-    """Wake the PS5 and wait until it reports it's on."""
     host, _ = require_setup()
     send_wake()
     device = Device(host)

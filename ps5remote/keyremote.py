@@ -1,12 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-only
-"""Interactive keyboard remote:  .\\ps5.bat remote
-
-  BROWSE  live remote: stays connected, full buttons, hold-to-repeat, idle disconnect.
-  WATCH   BENCHED (see README "Benched: Watch mode"). Only available, via the M key, when
-          data/config.json has "features": {"watch_mode": true}.
-
-Windows-only (msvcrt for key presses, GetAsyncKeyState for held keys). All PS5 logic lives in
-remote.py and watch.py; this file only maps keys and prints.
+"""Interactive keyboard remote (.\\ps5.bat remote). Windows-only: msvcrt for keys,
+GetAsyncKeyState to see when a held key is released. Watch mode (M key) is benched and needs
+"features": {"watch_mode": true} in data/config.json.
 """
 from __future__ import annotations
 
@@ -25,7 +20,7 @@ def watch_mode_enabled() -> bool:
     return bool(config.load().get("features", {}).get("watch_mode", False))
 
 BROWSE, WATCH = "BROWSE", "WATCH"
-IDLE_TIMEOUT = 120.0  # Browse mode disconnects after 2 minutes without a press
+IDLE_TIMEOUT = 120.0
 
 ARROWS = {"H": "up", "P": "down", "K": "left", "M": "right"}  # codes after a \xe0 / \x00 prefix
 BROWSE_KEYS = {
@@ -143,7 +138,7 @@ class KeyboardRemote:
             return
         if mode == WATCH:
             await self.remote.stop_hold()
-            self.remote.close()  # drop the live session now so the picture comes back
+            self.remote.close()  # so a streaming app's picture comes back
             self.mode = WATCH
             print(HELP[WATCH])
             self.say("Now in WATCH mode. No session is held open.")
@@ -180,7 +175,7 @@ class KeyboardRemote:
 
     async def _hold_arrow(self, button: str) -> None:
         start = time.monotonic()
-        await self.remote.hold(button)  # taps once now, then repeats while held
+        await self.remote.hold(button)
         self.say(f"-> {button}{'  (after connecting)' if time.monotonic() - start > 1 else ''}")
         held_from = time.monotonic()
         while _key_down(VK[button]):

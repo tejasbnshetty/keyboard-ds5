@@ -1,9 +1,6 @@
 # SPDX-License-Identifier: AGPL-3.0-only
-# PyInstaller build recipe. Build with build.bat (personal) or "build.bat public".
-#
-# The .exe keeps its data (settings, key maps, pairing) and logs in %APPDATA%\PS5Remote.
-# The data\ folder is never bundled - EXCEPT data\psn_client.json in a PERSONAL build
-# (PS5REMOTE_PERSONAL=1, set by build.bat). A personal build must never be distributed.
+# PyInstaller recipe; run build.bat. data\ is never bundled, except data\psn_client.json in a
+# PERSONAL build (PS5REMOTE_PERSONAL=1), which must never be distributed.
 # -*- mode: python ; coding: utf-8 -*-
 import os
 
@@ -35,7 +32,7 @@ exe = EXE(
     a.datas,
     [],
     name="PS5Remote-personal" if personal else "PS5Remote",
-    console=False,         # no console window
+    console=False,
     debug=False,
     upx=False,             # UPX-packed exes trigger antivirus false positives
     runtime_tmpdir=None,

@@ -1,13 +1,5 @@
 # SPDX-License-Identifier: AGPL-3.0-only
-"""Windows app entry point: start the local server, then show it in a pywebview window.
-
-  app.bat                    no console window; logs to the log folder
-  .\\ps5.bat app [options]   same, with live logs in the terminal
-  PS5Remote.exe [options]    the packaged app
-
-Options: --debug (verbose logs + devtools), --browser (default browser instead of the window),
---setup (force the setup wizard), --data-dir DIR (use another data folder, e.g. for testing).
-"""
+"""App entry point: start the local server, then show it in a pywebview window (see --help)."""
 from __future__ import annotations
 
 import argparse
@@ -34,7 +26,7 @@ class Redact(logging.Filter):
 
     def __init__(self):
         super().__init__()
-        self.extra: list[str] = []   # exact values to hide (e.g. this run's session token)
+        self.extra: list[str] = []   # exact values to hide, e.g. the session token
 
     def filter(self, record: logging.LogRecord) -> bool:
         try:
@@ -58,7 +50,7 @@ def setup_logging(debug: bool, console: bool) -> Redact:
     if console and sys.stderr:
         handlers.append(logging.StreamHandler())
     root = logging.getLogger()
-    for old in list(root.handlers):  # e.g. ps5.bat's basicConfig handler: no redaction on it
+    for old in list(root.handlers):  # e.g. ps5.bat's handler, which has no redaction
         root.removeHandler(old)
     root.setLevel(logging.DEBUG if debug else logging.INFO)
     for handler in handlers:
@@ -74,7 +66,7 @@ def setup_logging(debug: bool, console: bool) -> Redact:
 
 
 def make_login_opener(webview):
-    """Open Sony's sign-in page in an app window and catch the redirect automatically."""
+    """Opens Sony's sign-in page in an app window and catches the redirect."""
 
     def open_login(url: str, on_result) -> None:
         window = webview.create_window("Sign in to PlayStation Network", url,
@@ -165,7 +157,7 @@ def _run_window(debug: bool, setup: bool, redact: Redact) -> None:
             return
         started.set()
         loop.run_forever()
-        loop.run_until_complete(server.stop())  # disconnects from the PS5 cleanly
+        loop.run_until_complete(server.stop())
         loop.close()
 
     thread = threading.Thread(target=serve, name="server", daemon=True)
@@ -180,8 +172,7 @@ def _run_window(debug: bool, setup: bool, redact: Redact) -> None:
         title += " (personal build - do not distribute)"
     webview.create_window(title, result["url"], width=660, height=820,
                           min_size=(420, 600), background_color="#0e1015")
-    # private_mode: no cookies or storage kept on disk (Sony's sign-in included).
-    # debug: devtools (right-click > Inspect) only with --debug.
+    # private_mode: no cookies or storage kept on disk, including Sony's sign-in.
     webview.start(private_mode=True, debug=debug)
 
     loop.call_soon_threadsafe(loop.stop)

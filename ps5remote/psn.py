@@ -1,15 +1,11 @@
 # SPDX-License-Identifier: AGPL-3.0-only
-"""PSN sign-in, used once to learn the account ID that Remote Play pairing needs.
+"""PSN sign-in, used once to get the account ID that pairing needs. The access token is
+discarded; only the account ID and online ID are kept.
 
-Uses the same OAuth flow, scopes and redirect as chiaki-ng. The access token is used once and
-discarded; only the derived account ID (and PSN online ID, used as a profile name) is kept.
-
-The Sony client ID/secret are NOT in this source code. They're read, in order, from:
-  1. environment variables PS5REMOTE_PSN_CLIENT_ID / PS5REMOTE_PSN_CLIENT_SECRET
-  2. psn_client.json in the data folder ({"client_id": ..., "client_secret": ...})
-  3. psn_client.json in the source tree's data/ folder (so --data-dir test runs still work)
-  4. psn_client.json bundled into a *personal* .exe by build.bat
-See psn_client.example.json. Never commit or publish real values.
+OAuth flow, scopes and redirect as in chiaki-ng (gui/include/psnaccountid.h). The client
+ID/secret are not in the source: they come from env vars PS5REMOTE_PSN_CLIENT_ID /
+PS5REMOTE_PSN_CLIENT_SECRET, or psn_client.json in the data folder, the source data/ folder,
+or a personal .exe. See psn_client.example.json.
 """
 from __future__ import annotations
 
@@ -87,7 +83,7 @@ def is_redirect(url: str | None) -> bool:
 
 
 def extract_code(text: str) -> str:
-    """Accept either the full redirect URL or just the code value."""
+    """Accepts the full redirect URL or just the code."""
     text = text.strip().strip('"')
     if "://" in text:
         code = parse_qs(urlparse(text).query).get("code", [""])[0]
@@ -101,7 +97,7 @@ def extract_code(text: str) -> str:
 
 
 def fetch_account(code: str) -> tuple[str, str]:
-    """Exchange the sign-in code for (online_id, base64 account id). The token is discarded."""
+    """Returns (online_id, base64 account id)."""
     auth = _require_client()
     body = {
         "grant_type": "authorization_code",
@@ -132,6 +128,6 @@ def fetch_account(code: str) -> tuple[str, str]:
 
 
 def make_profile(online_id: str, account_id: str, existing: dict | None = None) -> UserProfile:
-    """Build a pyremoteplay profile, keeping any PS5 pairings already saved for this user."""
+    """Keeps PS5 pairings already saved for the same account."""
     hosts = (existing or {}).get("hosts", {}) if existing and existing.get("id") == account_id else {}
     return UserProfile(online_id, {"id": account_id, "hosts": hosts})

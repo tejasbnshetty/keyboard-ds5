@@ -1,11 +1,8 @@
 # SPDX-License-Identifier: AGPL-3.0-only
-"""First-run setup wizard (server side): find the PS5, sign in to PSN, pair, rest-mode tips.
+"""Setup wizard, server side: find the PS5, sign in to PSN, pair.
 
-Safe re-pairing: nothing is written until pairing succeeds. The chosen PS5 and a freshly
-signed-in account are held in memory, then ps5.pair_console() saves them together. Abandoning
-the wizard (or a failed PIN) leaves any existing pairing untouched.
-
-The account ID never leaves the server; the interface only sees the PSN online ID.
+Nothing is written until pairing succeeds, so an abandoned or failed re-pair leaves the
+existing pairing untouched. The account ID never leaves the server.
 """
 from __future__ import annotations
 
@@ -26,8 +23,8 @@ _LOGGER = logging.getLogger(__name__)
 class SetupWizard:
     def __init__(self, server: "AppServer", open_login: Callable | None, force: bool = False):
         self.server = server
-        # open_login(url, on_result): opens Sony's page in an app window and calls
-        # on_result(redirect_url or None) from any thread. None in --browser mode.
+        # open_login(url, on_result) calls on_result(redirect or None) from any thread.
+        # None in --browser mode.
         self.open_login = open_login
         self.active = force or not config.is_paired()
         self.mode = "full"
@@ -36,15 +33,13 @@ class SetupWizard:
     def _reset(self) -> None:
         self.consoles: list[dict] = []
         self.console: dict | None = None
-        self.signed_in: str | None = None       # online ID that will be used for pairing
+        self.signed_in: str | None = None
         self._pending_account_id: str | None = None  # new sign-in, not saved until paired
         self.busy = ""
         self.error = ""
         self.paired = False
         self.login_window_open = False
         self.paste_needed = False
-
-    # ---- state sent to the interface (no secrets) ------------------------------------------
 
     def existing_account(self) -> str | None:
         # Read the file directly: config.profiles() would create an empty profiles.json.
@@ -81,8 +76,6 @@ class SetupWizard:
 
     async def push(self) -> None:
         await self.server.broadcast({"type": "setup", **self.public_state()})
-
-    # ---- message handling ------------------------------------------------------------------
 
     async def handle(self, kind: str, data: dict) -> None:
         handlers = {
@@ -171,7 +164,7 @@ class SetupWizard:
         if redirect:
             await self._exchange(redirect)
         else:
-            self.paste_needed = True  # window closed without finishing: offer the paste box
+            self.paste_needed = True  # window closed without finishing
         await self.push()
 
     async def _psn_paste(self, data: dict) -> None:

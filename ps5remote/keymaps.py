@@ -26,13 +26,11 @@ _KEY_CODE = re.compile(r"^[A-Za-z0-9]{1,24}$")
 DEFAULTS = {
     "active": "Menus",
     "profiles": {
-        # Same keys as the command-line remote.
         "Menus": {
             "up": "ArrowUp", "down": "ArrowDown", "left": "ArrowLeft", "right": "ArrowRight",
             "cross": "Enter", "circle": "Backspace", "triangle": "KeyT", "square": "KeyS",
             "options": "KeyO", "ps": "KeyP", "l1": "KeyQ", "r1": "KeyE", "l2": "KeyZ", "r2": "KeyC",
         },
-        # Left hand on WASD, right hand on IJKL for the face buttons.
         "Games": {
             "up": "KeyW", "down": "KeyS", "left": "KeyA", "right": "KeyD",
             "cross": "KeyK", "circle": "KeyL", "triangle": "KeyI", "square": "KeyJ",
@@ -52,7 +50,7 @@ def conflicts(profile: dict[str, str]) -> dict[str, list[str]]:
 
 
 def validate(data: dict, reserved: set[str]) -> dict:
-    """Check untrusted keymaps from the UI. Returns a clean copy or raises ValueError."""
+    """Validates untrusted keymaps from the UI; returns a clean copy or raises ValueError."""
     if not isinstance(data, dict) or not isinstance(data.get("profiles"), dict):
         raise ValueError("Key maps are malformed.")
     profiles = data["profiles"]

@@ -1,24 +1,9 @@
 # SPDX-License-Identifier: AGPL-3.0-only
-"""Local web server behind the app window (and, later, the iPhone page).
+"""Local web server behind the app window: the interface plus one JSON WebSocket.
 
-Serves the HTML/CSS/JS interface and one WebSocket for live control.
-
-Security model:
-- Listens on 127.0.0.1 only, so other devices on the network can't reach it.
-- A random token is made each run. The WebSocket requires it (constant-time compare), and the
-  window is opened with it. Other local programs and web pages don't know it.
-- The Host header must be 127.0.0.1/localhost:<port> (blocks DNS-rebinding attacks), and the
-  WebSocket's Origin must be this server (blocks other websites in your browser).
-- Strict Content-Security-Policy, no external resources, no referrer, and no access log (the
-  page URL carries the token).
-- Credentials (PSN account ID, pairing keys) are never sent to the interface.
-
-WebSocket messages, client -> server (JSON):
-  hello | press {button} | hold {button} | release {button} | wake | rest | disconnect
-  save_settings {settings} | save_keymaps {keymaps} | reset_keymaps
-Server -> client:
-  init {settings, keymaps, buttons, repeatable} | status {...} | event {kind, message}
-  settings {settings} | keymaps {keymaps} | error {message}
+Security: listens on 127.0.0.1 only; the WebSocket needs this run's random token and this
+server's Origin; the Host header must be local (blocks DNS rebinding); strict CSP; no access
+log (URLs carry the token). Credentials are never sent to the interface.
 """
 from __future__ import annotations
 
@@ -41,8 +26,8 @@ _LOGGER = logging.getLogger(__name__)
 
 # In the .exe, PyInstaller unpacks the web files to <_MEIPASS>/web (see ps5remote.spec).
 WEB_DIR = config.RESOURCES / "web" if getattr(sys, "frozen", False) else Path(__file__).resolve().parent / "web"
-STATUS_POLL_S = 3.0          # how often to ask the PS5 for its status
-TICK_S = 0.5                 # how often to push connection / countdown changes
+STATUS_POLL_S = 3.0
+TICK_S = 0.5
 MAX_MESSAGE_BYTES = 64 * 1024
 CSP = ("default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; "
        "connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'")
@@ -68,8 +53,6 @@ class AppServer:
         self._make_remote()
         self.wizard = SetupWizard(self, open_login, force=force_setup)
 
-    # ---- setup -----------------------------------------------------------------------------
-
     def _make_remote(self) -> None:
         if not config.is_paired():
             self.remote, self.setup_error = None, "Not set up yet."
@@ -91,14 +74,14 @@ class AppServer:
             self.remote.repeat_interval = s.repeat_interval_ms / 1000
 
     def reload_remote(self) -> None:
-        """After pairing (or copying old data): start using the new pairing."""
+        """Start using a new pairing (after pairing or copying old data)."""
         if self.remote:
             self.remote.close()
         self._make_remote()
         self._spawn(self._refresh_and_push())
 
     def forget_pairing(self) -> None:
-        """Sign out: delete pairing keys, account ID and PS5 address. Keeps settings/key maps."""
+        """Deletes pairing keys, account ID and PS5 address; keeps settings and key maps."""
         if self.remote:
             self.remote.close()
         self.remote, self.setup_error = None, "Not set up yet."
@@ -146,8 +129,6 @@ class AppServer:
         if self._runner:
             await self._runner.cleanup()
 
-    # ---- HTTP ------------------------------------------------------------------------------
-
     @web.middleware
     async def _guard(self, request: web.Request, handler):
         allowed = {f"127.0.0.1:{self.port}", f"localhost:{self.port}"}
@@ -162,8 +143,6 @@ class AppServer:
 
     async def _index(self, request: web.Request) -> web.StreamResponse:
         return web.FileResponse(WEB_DIR / "index.html")
-
-    # ---- WebSocket -------------------------------------------------------------------------
 
     def _authorised(self, request: web.Request) -> bool:
         token = request.query.get("token", "")
@@ -237,8 +216,6 @@ class AppServer:
             await self.event("info", "Key maps reset to defaults.")
         else:
             await self._send(ws, {"type": "error", "message": "Unknown message"})
-
-    # ---- actions ---------------------------------------------------------------------------
 
     def _spawn(self, coro) -> None:
         task = asyncio.create_task(coro)
@@ -325,8 +302,6 @@ class AppServer:
         keymaps.save(clean)
         await self.broadcast({"type": "keymaps", "keymaps": clean})
 
-    # ---- status ----------------------------------------------------------------------------
-
     def _on_remote_event(self, kind: str, message: str) -> None:
         self._spawn(self.event(kind, message))
         self._spawn(self._push_status())
@@ -374,8 +349,6 @@ class AppServer:
             except Exception:  # pylint: disable=broad-except
                 _LOGGER.exception("Status poll failed")
             await asyncio.sleep(TICK_S)
-
-    # ---- sending ---------------------------------------------------------------------------
 
     async def _send(self, ws: web.WebSocketResponse, payload: dict) -> None:
         if not ws.closed:

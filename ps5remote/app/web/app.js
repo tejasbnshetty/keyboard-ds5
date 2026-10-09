@@ -1,5 +1,4 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-// PS5 Remote interface. Talks to the local server over one WebSocket (see server.py).
 // Untrusted text is only ever inserted with textContent, never innerHTML.
 "use strict";
 
@@ -21,8 +20,6 @@ const wiz = { step: 1, lastAction: null, migrationAsked: false, wasActive: false
 const token = new URLSearchParams(location.search).get("token") || "";
 const $ = (sel) => document.querySelector(sel);
 const $$ = (sel) => document.querySelectorAll(sel);
-
-// ---- connection --------------------------------------------------------------------------
 
 function connect() {
   const ws = new WebSocket(`ws://${location.host}/ws?token=${encodeURIComponent(token)}`);
@@ -57,8 +54,6 @@ function handle(msg) {
     case "error": log(msg.message, "error"); break;
   }
 }
-
-// ---- status ------------------------------------------------------------------------------
 
 function setPower(power) {
   const pill = $("#power");
@@ -106,8 +101,6 @@ function log(text, kind = "info", time = "") {
   list.prepend(li);
   while (list.children.length > 6) list.lastChild.remove();
 }
-
-// ---- buttons (on-screen and keyboard) ----------------------------------------------------
 
 function buttonDown(button) {
   document.querySelectorAll(`[data-button="${button}"]`).forEach((el) => el.classList.add("pressed"));
@@ -177,8 +170,6 @@ document.addEventListener("keyup", (e) => {
 
 window.addEventListener("blur", releaseAll);  // never leave a button held if focus moves away
 
-// ---- actions -----------------------------------------------------------------------------
-
 $("#wake").addEventListener("click", () => send({ type: "wake" }));
 $("#disconnect").addEventListener("click", () => send({ type: "disconnect" }));
 $("#rest").addEventListener("click", async () => {
@@ -190,8 +181,6 @@ $$(".tab").forEach((tab) => tab.addEventListener("click", () => {
   $$(".panel").forEach((p) => p.classList.toggle("active", p.id === `tab-${tab.dataset.tab}`));
   tab.blur();
 }));
-
-// ---- modal helpers -----------------------------------------------------------------------
 
 function confirmBox(text, withInput = false, initial = "") {
   return new Promise((resolve) => {
@@ -212,8 +201,6 @@ function confirmBox(text, withInput = false, initial = "") {
     input.onkeydown = (e) => { if (e.key === "Enter") done(true); if (e.key === "Escape") done(false); };
   });
 }
-
-// ---- key maps ----------------------------------------------------------------------------
 
 function keyLabel(code) {
   if (!code) return "—";
@@ -275,7 +262,7 @@ async function finishCapture(code) {
   const capture = state.capture;
   state.capture = null;
   $("#capture").hidden = true;
-  if (code === "Escape") return;  // Esc always cancels
+  if (code === "Escape") return;
   if (capture.kind === "hotkey") {
     if (allBoundKeys().has(code)) { log(`${keyLabel(code)} is used in a key map; pick another hotkey.`, "error"); return; }
     $("#hotkey-capture").dataset.code = code;
@@ -338,8 +325,6 @@ $("#keys-reset").addEventListener("click", async () => {
   if (await confirmBox("Reset all key maps and profiles to the defaults?")) send({ type: "reset_keymaps" });
 });
 
-// ---- settings ----------------------------------------------------------------------------
-
 function applySettings(s) {
   state.settings = s;
   const form = $("#settings-form");
@@ -372,8 +357,6 @@ $("#settings-form").addEventListener("submit", (e) => {
   });
 });
 
-// ---- setup wizard ------------------------------------------------------------------------
-
 function wizardActive() { return !!(state.setup && state.setup.active); }
 
 function wizSteps() {
@@ -390,7 +373,7 @@ async function applySetup(s) {
   state.setup = s;
   document.body.classList.toggle("wizard-on", s.active);
   $("#wizard").hidden = !s.active;
-  if (s.active && !wiz.wasActive) {   // wizard just opened: start at step 1 and search
+  if (s.active && !wiz.wasActive) {
     wiz.step = 1;
     wiz.lastAction = null;
     releaseAll();
@@ -398,7 +381,6 @@ async function applySetup(s) {
   }
   wiz.wasActive = s.active;
 
-  // Settings > PS5 & account
   $("#account-info").textContent = s.existing_account
     ? `Signed in as ${s.existing_account}${s.current_ps5 ? ` · paired with the PS5 at ${s.current_ps5}` : ""}.`
     : "Not signed in.";
@@ -406,7 +388,7 @@ async function applySetup(s) {
   $("#wiz-data-dir").textContent = `Data folder: ${s.data_dir}`;
   $("#forget").disabled = !s.existing_account && !s.current_ps5;
 
-  // Offer to copy an older data folder (first run of the .exe).
+  // First run of the .exe: offer to copy an older data folder.
   if (s.migration && !wiz.migrationAsked) {
     wiz.migrationAsked = true;
     const yes = await confirmBox(
@@ -439,7 +421,6 @@ function renderWizard() {
   $("#wiz-retry").hidden = !s.error || !wiz.lastAction;
   $("#wiz-cancel").hidden = !s.can_cancel;
 
-  // Step 1
   $("#wiz-consoles").replaceChildren(...s.consoles.map((c) => {
     const b = document.createElement("button");
     b.className = "action choice" + (s.console && s.console.ip === c.ip ? " selected" : "");
@@ -451,7 +432,6 @@ function renderWizard() {
   chosen.hidden = !s.console;
   chosen.textContent = s.console ? `Using ${s.console.name} at ${s.console.ip} ✓` : "";
 
-  // Step 2
   $("#wiz-psn-missing").hidden = s.psn_configured;
   $("#wiz-signin").disabled = !s.psn_configured || !!s.busy || s.login_window_open;
   $("#wiz-keep").hidden = !s.existing_account || !!s.signed_in;
@@ -464,11 +444,9 @@ function renderWizard() {
   signed.hidden = !s.signed_in;
   signed.textContent = s.signed_in ? `Signed in as ${s.signed_in} ✓` : "";
 
-  // Step 3
   $("#wiz-paired").hidden = !s.paired;
   $("#wiz-pair").disabled = !!s.busy;
 
-  // Navigation
   const idx = steps.indexOf(wiz.step);
   $("#wiz-back").disabled = idx <= 0 || !!s.busy;
   const ready = { 1: !!s.console, 2: !!s.signed_in, 3: !!s.paired, 4: true, 5: false }[wiz.step];
@@ -511,7 +489,6 @@ $("#wiz-test-wake").addEventListener("click", () => send({ type: "wake" }));
 $("#wiz-test-press").addEventListener("click", () => send({ type: "press", button: "ps" }));
 $("#wiz-finish").addEventListener("click", () => send({ type: "setup_finish" }));
 
-// Settings > PS5 & account
 $("#repair").addEventListener("click", () => send({ type: "setup_start", mode: "repair" }));
 $("#rerun-setup").addEventListener("click", () => send({ type: "setup_start", mode: "full" }));
 $("#forget").addEventListener("click", async () => {

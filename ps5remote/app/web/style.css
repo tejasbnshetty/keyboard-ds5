@@ -68,7 +68,6 @@ main { flex: 1; overflow: auto; padding: 12px 16px; }
 .panel { display: none; }
 .panel.active { display: block; }
 
-/* Controller */
 .controller { max-width: 560px; margin: 0 auto; }
 .btn {
   background: var(--raised); color: var(--text); border: 0; border-radius: 12px;
@@ -112,7 +111,6 @@ main { flex: 1; overflow: auto; padding: 12px 16px; }
 .hint { color: var(--muted); font-size: 13px; text-align: center; }
 #tab-keys .hint { text-align: left; }
 
-/* Key table */
 .key-table { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 8px; margin-top: 10px; }
 .key-row {
   display: flex; justify-content: space-between; align-items: center; gap: 8px;
@@ -124,7 +122,6 @@ main { flex: 1; overflow: auto; padding: 12px 16px; }
 .key-row .key { font-family: Consolas, monospace; color: var(--accent); }
 .key-row .key.unbound { color: var(--muted); }
 
-/* Settings */
 .settings { display: grid; gap: 14px; max-width: 460px; }
 .settings label { display: grid; gap: 4px; }
 .settings label.check { grid-template-columns: auto 1fr; align-items: center; column-gap: 8px; }
@@ -146,7 +143,7 @@ footer { padding: 6px 16px 10px; }
 #capture .modal-box { text-align: center; }
 #capture-text { font-size: 18px; }
 
-/* Setup wizard: while active it replaces the remote */
+/* While the setup wizard is active it replaces the remote. */
 body.wizard-on .tabs, body.wizard-on main, body.wizard-on #streaming-warning,
 body.wizard-on #setup-warning, body.wizard-on #busy { display: none; }
 .wizard { flex: 1; overflow: auto; padding: 12px 16px; max-width: 640px; width: 100%; margin: 0 auto; }

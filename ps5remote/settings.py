@@ -9,12 +9,12 @@ from . import config
 
 @dataclass
 class AppSettings:
-    press_ms: int = 80             # how long a tap holds the button down
-    idle_timeout_min: float = 2.0  # disconnect after this long without a press (0 = never)
-    safe_connect: bool = False     # wait for the PS5's own session ID (~1.5 s slower)
-    repeat_delay_ms: int = 400     # hold-to-repeat: first repeat after this
-    repeat_interval_ms: int = 150  # hold-to-repeat: then one press every this
-    profile_hotkey: str = "F2"     # KeyboardEvent.code that cycles key-map profiles
+    press_ms: int = 80
+    idle_timeout_min: float = 2.0  # 0 = never
+    safe_connect: bool = False
+    repeat_delay_ms: int = 400
+    repeat_interval_ms: int = 150
+    profile_hotkey: str = "F2"     # a KeyboardEvent.code
 
     LIMITS = {
         "press_ms": (20, 1000),
@@ -33,7 +33,7 @@ class AppSettings:
 
     @classmethod
     def from_dict(cls, data: dict) -> "AppSettings":
-        """Validate untrusted input (from the UI). Raises ValueError with a readable message."""
+        """Validates untrusted input from the UI; raises ValueError with a readable message."""
         out = cls()
         for f in fields(cls):
             if f.name not in data:

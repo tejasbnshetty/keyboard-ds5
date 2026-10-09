@@ -1,15 +1,5 @@
 # SPDX-License-Identifier: AGPL-3.0-only
-"""Command-line tool:  .\\ps5.bat <command>
-
-  discover        find the PS5 on the network and save its address (or --ip to set it by hand)
-  status          show whether the PS5 is asleep / awake
-  login           sign in to PSN once to get your account ID
-  pair            link this PC to the PS5 using the PIN shown on the TV
-  wake            wake the PS5 from rest mode
-  standby         put the PS5 into rest mode
-  press BUTTON    connect, press one button, disconnect
-  remote          interactive keyboard remote that stays connected
-"""
+"""Command-line tool: .\\ps5.bat <command> (see --help)."""
 from __future__ import annotations
 
 import argparse

@@ -1,18 +1,9 @@
 # SPDX-License-Identifier: AGPL-3.0-only
-"""Where local settings and secrets live, and reading/writing them.
+"""Local settings and secrets.
 
-Data folder:
-  running from source:  <project>/data            logs: <project>/logs
-  running as the .exe:  %APPDATA%\\PS5Remote\\data  logs: %APPDATA%\\PS5Remote\\logs
-  override (testing):   set_data_dir(path) or env PS5REMOTE_DATA_DIR   logs: <path>/logs
-
-Files in the data folder:
-  config.json      PS5 address, chosen PSN user, app settings
-  profiles.json    pyremoteplay profiles: PSN account ID and PS5 pairing keys
-  keymaps.json     keyboard profiles
-  psn_client.json  Sony sign-in values (optional, see psn.py; never committed or published)
-
-Nothing in here is ever printed or logged.
+Data folder: <project>/data from source, %APPDATA%\\PS5Remote\\data as the .exe, or
+set_data_dir() / env PS5REMOTE_DATA_DIR. It holds config.json (PS5 address, user, settings),
+profiles.json (account ID and pairing keys), keymaps.json and optionally psn_client.json.
 """
 from __future__ import annotations
 
@@ -34,7 +25,7 @@ else:
     ROOT = Path(__file__).resolve().parent.parent
     RESOURCES = ROOT
     USER_DIR = ROOT
-SOURCE_DATA_DIR = ROOT / "data"   # the data folder when running from source
+SOURCE_DATA_DIR = ROOT / "data"
 
 DATA_DIR: Path
 LOG_DIR: Path
@@ -44,7 +35,7 @@ CUSTOM_DATA_DIR = False
 
 
 def set_data_dir(path: str | Path | None = None) -> None:
-    """Point everything at another data folder (e.g. a temporary one for testing setup)."""
+    """Use another data folder (e.g. a temporary one for testing)."""
     global DATA_DIR, LOG_DIR, CONFIG_FILE, PROFILES_FILE, CUSTOM_DATA_DIR  # pylint: disable=global-statement
     if path:
         DATA_DIR = Path(path).resolve()
@@ -101,7 +92,7 @@ def remove_keys(*keys: str) -> None:
 
 
 def profiles() -> Profiles:
-    """Load pyremoteplay profiles from our data folder instead of the library's default."""
+    """pyremoteplay profiles from our data folder, not the library's default."""
     _ensure_dir()
     Profiles.set_default_path(str(PROFILES_FILE))
     return Profiles.load(str(PROFILES_FILE))
@@ -126,15 +117,12 @@ def is_paired() -> bool:
     return bool(data.get(user, {}).get("hosts"))
 
 
-# ---- moving an old data folder into %APPDATA% (first run of the .exe) ----------------------
-
 MIGRATE_FILES = ("config.json", "profiles.json", "keymaps.json", "psn_client.json")
 _DECLINED = "migration-declined"
 
 
 def migration_source() -> Path | None:
-    """An older data folder the .exe could copy from, if we don't have pairing data yet.
-    Looks next to the .exe, and one folder up (dist\\ inside the project)."""
+    """An older data folder for the .exe to offer copying: next to it or one folder up."""
     if not FROZEN or CUSTOM_DATA_DIR or PROFILES_FILE.exists() or (DATA_DIR / _DECLINED).exists():
         return None
     for candidate in (ROOT / "data", ROOT.parent / "data"):
@@ -144,7 +132,7 @@ def migration_source() -> Path | None:
 
 
 def migrate_from(source: Path) -> list[str]:
-    """Copy (not move) the known files. Returns the names copied."""
+    """Copies (doesn't move) the known files."""
     _ensure_dir()
     copied = []
     for name in MIGRATE_FILES:

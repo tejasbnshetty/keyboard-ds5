@@ -1,16 +1,11 @@
 # SPDX-License-Identifier: AGPL-3.0-only
-"""Watch mode: control a playing video without holding a Remote Play session open.
+"""Watch mode (benched): control a playing video in short bursts (connect, press,
+disconnect), because an open session blacks out streaming-app video on the TV.
 
-While a session is open, a streaming app's picture goes black on the TV (tested in Apple TV),
-so every action here is a short burst: connect, press, disconnect. Shared by the command line
-and the future Windows app.
-
-- Collect window: after the first press, wait COLLECT_MS for more so quick taps share one
-  connection. Presses arriving while a burst is connected join it.
-- The PS5 refuses new sessions for ~9 s after one ends. Actions in that window wait with a
-  countdown. Pressing play/pause again before it's sent cancels both.
-- Smart play: resuming from "paused" skips back first, because ~3 s of video goes by while
-  the picture comes back after a burst.
+- Quick taps are collected into one connection.
+- The PS5 refuses new sessions for ~9 s after one ends, so actions wait with a countdown;
+  play/pause pressed twice before sending cancels out.
+- Smart play skips back on resume, because ~3 s passes while the picture comes back.
 
 Events go to on_event(kind, message):
   "queued"    an action was accepted (message describes it)
@@ -37,22 +32,20 @@ from .remote import Remote
 
 _LOGGER = logging.getLogger(__name__)
 
-BUSY_RETRY_S = 1.0      # if the PS5 still refuses after the predicted gap, retry this often
+BUSY_RETRY_S = 1.0
 BUSY_GIVE_UP_S = 30.0
 
 PLAYING, PAUSED, UNKNOWN = "playing", "paused", "unknown"
 
 
-# ---- settings --------------------------------------------------------------------------------
-
 @dataclass
 class WatchSettings:
-    smart_play_s: int = 10    # skip back this much when resuming from paused: 0 (off), 10, 20
-    smart_pause_s: int = 0    # skip back this much right after pausing: 0 (off), 10, 20
-    collect_ms: int = 300     # wait for more presses before connecting
-    post_wait_ms: int = 300   # keep the session open this long after the last press
-    gap_ms: int = 150         # pause between presses inside one burst
-    app: str = "auto"         # "auto" (from the running app) or a key in app_maps.json
+    smart_play_s: int = 10    # 0 (off), 10 or 20
+    smart_pause_s: int = 0    # 0 (off), 10 or 20
+    collect_ms: int = 300
+    post_wait_ms: int = 300
+    gap_ms: int = 150
+    app: str = "auto"         # "auto" or a key in app_maps.json
 
     @classmethod
     def load(cls) -> "WatchSettings":
@@ -64,15 +57,13 @@ class WatchSettings:
         config.update(watch=asdict(self))
 
 
-# ---- actions ---------------------------------------------------------------------------------
-
 @dataclass
 class Action:
     label: str
     buttons: list[str]
-    toggle: bool = False            # play/pause: two pending toggles cancel out
-    prev_state: str = UNKNOWN       # play state before this toggle, to undo on cancel
-    then_browse: bool = False       # switch to Browse mode after it's sent
+    toggle: bool = False            # two pending toggles cancel out
+    prev_state: str = UNKNOWN       # restored if this toggle is cancelled
+    then_browse: bool = False
 
 
 class WatchMode:
@@ -82,7 +73,7 @@ class WatchMode:
         self.settings = settings
         self._on_event = on_event or (lambda kind, msg: None)
         self.app: AppMap | None = None
-        self.play_state = PLAYING   # entering Watch mode means a video is playing
+        self.play_state = PLAYING   # Watch mode is entered while a video plays
         self._pending: list[Action] = []
         self._task: asyncio.Task | None = None
         self._connected_burst = False
@@ -99,15 +90,13 @@ class WatchMode:
         return self._task is not None and not self._task.done()
 
     async def enter(self) -> None:
-        """Call when switching into Watch mode (after the live session was closed)."""
+        """Call after the live session was closed."""
         self.play_state = PLAYING
         status = await ps5.async_get_status(self.remote.host)
         self.app, why = pick_app_map(self.settings.app, status)
         unverified = [k for k, ok in self.app.verified.items() if not ok]
         note = f" - unverified: {', '.join(unverified)}" if unverified else ""
         self._emit("app", f"Button map: {self.app.name} ({why}){note}")
-
-    # ---- building actions ----
 
     def play_pause(self) -> None:
         a = self.app
@@ -140,7 +129,7 @@ class WatchMode:
         if action.toggle and not self._connected_burst:
             pending = next((p for p in self._pending if p.toggle), None)
             if pending:
-                # e.g. pause then play before anything was sent: net effect is nothing.
+                # e.g. pause then play before anything was sent: nothing to do.
                 self._pending.remove(pending)
                 self.play_state = pending.prev_state
                 self._emit("cancelled", f"'{pending.label}' and '{action.label}' cancel out - not sent")
@@ -154,8 +143,6 @@ class WatchMode:
             self._emit("state", self.play_state)
         if not self.busy:
             self._task = asyncio.create_task(self._run())
-
-    # ---- the burst ----
 
     async def _run(self) -> None:
         t_first = time.monotonic()
@@ -206,7 +193,7 @@ class WatchMode:
             self._task = asyncio.create_task(self._run())
 
     async def _connect(self) -> tuple[float, float]:
-        """Wait until the PS5 should accept a session (countdown), then connect.
+        """Countdown until the PS5 should accept a session, then connect.
         Returns (time connecting started, time connected)."""
         last_shown = None
         give_up = time.monotonic() + BUSY_GIVE_UP_S
@@ -229,7 +216,7 @@ class WatchMode:
                 await asyncio.sleep(BUSY_RETRY_S)
 
     async def stop(self) -> None:
-        """Drop anything pending and disconnect (when leaving Watch mode or quitting)."""
+        """Drop anything pending and disconnect."""
         self._pending.clear()
         task, self._task = self._task, None
         if task and not task.done():
@@ -240,8 +227,6 @@ class WatchMode:
                 pass
         self.remote.end_burst()
 
-
-# ---- post-press wait test --------------------------------------------------------------------
 
 POST_WAIT_TEST_VALUES = [600, 400, 250, 150, 80, 0]
 

@@ -1,10 +1,5 @@
 # SPDX-License-Identifier: AGPL-3.0-only
-"""A long-lived Remote Play session for sending controller buttons.
-
-Shared by the command line (press / remote) and the phone server. One Remote object keeps one
-session open, wakes the PS5 if needed, notices when the session drops, and reconnects on the
-next button press. No video is decoded: pyremoteplay drops the stream to its lowest quality and
-discards it.
+"""A Remote Play session for sending controller buttons (no video is decoded).
 
 Events are reported through on_event(kind, message), where kind is one of:
   "progress"      something slow is happening (waking, connecting, retrying)
@@ -14,11 +9,8 @@ Events are reported through on_event(kind, message), where kind is one of:
   "error"         a background action (e.g. hold-to-repeat) failed
   "display"       the PS5 switched to/from protected content (see protected_content)
 
-Two ways to use it:
-  - Live (Browse mode): tap()/hold() connect on demand and keep the session open, with an
-    optional idle timeout.
-  - Burst (Watch mode, see watch.py): open_burst(), press(), end_burst() - connect, send,
-    disconnect straight away, so a playing video's picture comes back.
+Live use: tap()/hold() connect on demand and keep the session open. Burst use (watch.py):
+open_burst(), press(), end_burst().
 """
 from __future__ import annotations
 
@@ -31,7 +23,7 @@ from . import config, ps5
 
 _LOGGER = logging.getLogger(__name__)
 
-# Our button names -> pyremoteplay FeedbackEvent.Type names
+# Our button names -> pyremoteplay FeedbackEvent.Type names.
 BUTTONS = {
     "up": "UP", "down": "DOWN", "left": "LEFT", "right": "RIGHT",
     "cross": "CROSS", "circle": "CIRCLE", "triangle": "TRIANGLE", "square": "SQUARE",
@@ -40,19 +32,16 @@ BUTTONS = {
 }
 REPEATABLE = {"up", "down", "left", "right"}
 
-# How long a tap holds the button down. Tune with --ms; see README "Press timing".
 DEFAULT_PRESS_MS = 80
-# Hold-to-repeat: first repeat after REPEAT_DELAY, then one tap every REPEAT_INTERVAL.
 REPEAT_DELAY = 0.40
 REPEAT_INTERVAL = 0.15
 
-WAKE_TIMEOUT = 60.0      # rest mode -> "on" usually takes 10-25 s
-READY_TIMEOUT = 15.0     # connected -> stream ready
-RETRY_WINDOW = 25.0      # keep retrying a failed connect this long (PS5 still booting, old session)
-WATCH_INTERVAL = 2.0     # how often to check the session is still alive
-MISSED_POLLS = 2         # unanswered status checks in a row before declaring the session lost
-# After any session ends the PS5 refuses new ones for ~9 s (measured 9.2-10.9 s including
-# probe intervals). We predict that instead of finding out by being refused.
+WAKE_TIMEOUT = 60.0      # rest mode -> on usually takes 10-25 s
+READY_TIMEOUT = 15.0
+RETRY_WINDOW = 25.0      # a just-woken PS5, or one still holding an old session, refuses for a while
+WATCH_INTERVAL = 2.0
+MISSED_POLLS = 2
+# The PS5 refuses new sessions for ~9 s after any session ends (measured 9.2-10.9 s).
 REUSE_DELAY = 9.5
 
 
@@ -69,23 +58,21 @@ class Remote:
                  idle_timeout: float | None = None):
         self.host, self.user = ps5.require_setup()
         self.press_s = press_ms / 1000
-        self.idle_timeout = idle_timeout     # live sessions close after this long unused
+        self.idle_timeout = idle_timeout
         self.reuse_delay = REUSE_DELAY
         self.repeat_delay = REPEAT_DELAY
         self.repeat_interval = REPEAT_INTERVAL
         self._on_event = on_event or (lambda kind, msg: None)
         self._device: ps5.Device | None = None
-        self._lock = asyncio.Lock()          # one connect / button send at a time
+        self._lock = asyncio.Lock()
         self._watchdog: asyncio.Task | None = None
         self._hold: asyncio.Task | None = None
         self._dropped_recently = False
-        self._session_live = False           # a session was fully established
+        self._session_live = False
         self._last_activity = time.monotonic()
         self.last_session_end: float | None = None
         self.last_wake_s: float | None = None
         self.last_connect_s: float | None = None
-
-    # ---- state -----------------------------------------------------------------------------
 
     @property
     def connected(self) -> bool:
@@ -101,9 +88,8 @@ class Remote:
 
     @property
     def protected_content(self) -> bool | None:
-        """True while the PS5 says it's showing content that can't be streamed (e.g. video
-        playback in a streaming app), False once it says it can show the picture again,
-        None if it hasn't said either since connecting (or not connected)."""
+        """True while the PS5 reports content it can't stream (e.g. streaming-app playback);
+        None until it reports either way."""
         session = self._device.session if self._device else None
         return getattr(session, "protected_content", None)
 
@@ -113,8 +99,6 @@ class Remote:
             self._on_event(kind, message)
         except Exception:  # pylint: disable=broad-except
             _LOGGER.exception("on_event callback failed")
-
-    # ---- connecting ------------------------------------------------------------------------
 
     async def connect(self, wake: bool = True) -> None:
         async with self._lock:
@@ -172,9 +156,8 @@ class Remote:
             "settings in the README.")
 
     async def _connect_with_retries(self, patient: bool) -> None:
-        """Right after waking, or after a dropped session (the PS5 may still be holding the old
-        one), the PS5 can refuse connections for a while, so keep retrying for RETRY_WINDOW.
-        Otherwise retry once. Never retry refusals that retrying can't fix."""
+        """Retry for RETRY_WINDOW after a wake, a dropped session or a busy refusal; otherwise
+        retry once. Never retry refusals that retrying can't fix."""
         start = time.monotonic()
         deadline = start + (RETRY_WINDOW if patient else 0)
         attempt = 0
@@ -189,7 +172,6 @@ class Remote:
                 return
             except ps5.PS5Error as err:
                 if isinstance(err, ps5.SessionBusy):
-                    # The PS5 frees a session a few seconds after it ends; worth waiting for.
                     deadline = max(deadline, start + RETRY_WINDOW)
                 out_of_time = attempt >= 2 and time.monotonic() > deadline
                 if ps5.is_fatal(str(err)) or out_of_time:
@@ -229,8 +211,6 @@ class Remote:
         self._last_activity = time.monotonic()
         device.controller.start()
 
-    # ---- buttons ---------------------------------------------------------------------------
-
     async def tap(self, button: str) -> float:
         """Press and release a button, connecting (and waking) first if needed.
         Returns the seconds spent connecting (0 when already connected)."""
@@ -250,12 +230,12 @@ class Remote:
         try:
             await asyncio.sleep(self.press_s)
         finally:
-            # Always release, even if cancelled mid-press, so no button is left held down.
+            # Release even if cancelled mid-press, so no button is left held down.
             if self.connected:
                 controller.button(name, "release")
 
     async def hold(self, button: str) -> None:
-        """Tap now, then keep repeating until stop_hold(). For D-pad scrolling."""
+        """Tap now, then repeat until stop_hold()."""
         await self.stop_hold()
         await self.tap(button)
         self._hold = asyncio.create_task(self._repeat(button, time.monotonic() - self.press_s))
@@ -281,12 +261,9 @@ class Remote:
             except asyncio.CancelledError:
                 pass
 
-    # ---- bursts (Watch mode) ---------------------------------------------------------------
-
     async def open_burst(self) -> float:
-        """Connect for a burst: one attempt, no waking, no watchdog. Returns the connect time.
-        Raises ps5.SessionBusy if the PS5 is still freeing the last session; the caller
-        decides whether to wait (watch.py shows a cancellable countdown)."""
+        """One connect attempt, no waking, no watchdog. Raises ps5.SessionBusy if the PS5 is
+        still freeing the last session."""
         async with self._lock:
             if self.connected:
                 return 0.0
@@ -310,10 +287,7 @@ class Remote:
             await self._tap_now(button)
 
     def end_burst(self) -> None:
-        """Disconnect straight away (sends the PS5 the disconnect message)."""
         self._teardown_session()
-
-    # ---- rest mode -------------------------------------------------------------------------
 
     async def standby(self) -> bool:
         """Put the PS5 into rest mode. Returns False if it was already asleep."""
@@ -326,7 +300,7 @@ class Remote:
                 raise
             session = self._device.session
             await session.async_standby()
-            # pyremoteplay's own wait loop has an inverted comparison, so wait here instead.
+            # pyremoteplay's own wait loop has an inverted comparison.
             start = time.monotonic()
             while time.monotonic() - start < 5 and not session.is_stopped:
                 await asyncio.sleep(0.1)
@@ -334,12 +308,9 @@ class Remote:
             self._emit("disconnected", "PS5 is going into rest mode")
             return True
 
-    # ---- dropped-session detection ---------------------------------------------------------
-
     async def _watch(self) -> None:
-        """The control connection closing (PS5 turned off from its controller, another app
-        taking over) is noticed immediately by pyremoteplay. A silent network drop isn't, so
-        also poll the PS5's status and give up after a couple of unanswered checks."""
+        """pyremoteplay notices the control connection closing, but not a silent network
+        drop, so also poll the PS5's status."""
         missed = 0
         while True:
             await asyncio.sleep(WATCH_INTERVAL)
@@ -350,7 +321,7 @@ class Remote:
                 return self._dropped(session.error or "the PS5 ended the session")
             idle = time.monotonic() - self._last_activity
             if self.idle_timeout and idle > self.idle_timeout and not self._hold:
-                self._watchdog = None  # we're running inside it; don't cancel ourselves
+                self._watchdog = None  # running inside it: don't cancel ourselves
                 self._teardown_session()
                 return self._emit("disconnected",
                                   f"Idle for {self.idle_timeout / 60:.0f} min - disconnected")
@@ -366,12 +337,10 @@ class Remote:
                     return self._dropped("lost contact with the PS5 (network problem?)")
 
     def _dropped(self, reason: str) -> None:
-        self._watchdog = None  # we're running inside it; don't cancel ourselves
+        self._watchdog = None  # running inside it: don't cancel ourselves
         self._teardown_session()
         self._dropped_recently = True
         self._emit("dropped", f"Session lost: {reason}. The next press will reconnect.")
-
-    # ---- shutting down ---------------------------------------------------------------------
 
     def _teardown_session(self) -> None:
         if self._watchdog and self._watchdog is not asyncio.current_task():
@@ -380,17 +349,16 @@ class Remote:
         device, self._device = self._device, None
         if self._session_live:
             self._session_live = False
-            self.last_session_end = time.monotonic()  # starts the PS5's ~9 s busy period
+            self.last_session_end = time.monotonic()  # starts the ~9 s busy period
         if device:
             try:
                 device.controller.disconnect()
-                # Sends a "disconnect" message to the PS5 so it doesn't keep a stale session.
                 device.disconnect()
             except Exception:  # pylint: disable=broad-except
                 _LOGGER.debug("Error while disconnecting", exc_info=True)
 
     def close(self) -> None:
-        """Disconnect cleanly. Safe to call from finally blocks and more than once."""
+        """Safe to call more than once."""
         if self._hold and not self._hold.done():
             self._hold.cancel()
         self._hold = None

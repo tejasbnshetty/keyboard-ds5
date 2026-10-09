@@ -1,30 +1,16 @@
 # SPDX-License-Identifier: AGPL-3.0-only
-"""Fixes to pyremoteplay's Remote Play session (the library is archived, so we patch by subclassing).
+"""Fixes to pyremoteplay's Remote Play session, applied by subclassing (the library is archived).
 
-1. Network test ("Senkusha" in chiaki-ng). Before the real stream, pyremoteplay opens a test
-   stream to measure MTU/RTT. Its handshake (BIG payload) sends client_version 7; chiaki-ng's
-   Senkusha sends 9 (lib/src/senkusha.c), and current PS5 firmware rejects 7. pyremoteplay
-   retransmits for 3 s, times out and falls back to MTU 1454 / RTT 1, the same values chiaki-ng
-   falls back to. We skip the test and use those values directly, saving ~3 s per connect.
-   NETWORK_TEST = True re-enables it, with the version fixed to 9.
-
-2. Disconnect message. Session.stop() sets the shared stop event *before* calling Stream.stop(),
-   which only sends the "Client Disconnecting" message if that event isn't set yet. So it was
-   never sent. stop() here sends it first (the PS5 now answers "Client Shutdown"). Note the
-   PS5 still takes ~9 s after any session ends before it accepts a new one; that's on its side.
-
-3. Session ID wait. After authenticating, the PS5 takes ~2 s to send its session ID over the
-   control connection, and nothing else can start until it arrives. chiaki-ng makes up a
-   fallback ID (seconds + 48 random bytes, base64) when the PS5's doesn't come in time, and the
-   PS5 accepts it. We use one after EARLY_SESSION_ID seconds, so the stream starts ~1.5 s
-   sooner. Set it to None to always wait for the PS5's own ID.
-
-4. Control messages. pyremoteplay reads only the low byte of the 16-bit message type (so it
-   answers heartbeat *replies* as if they were requests) and ignores the "display" messages
-   the PS5 sends when it switches to content that can't be streamed (protected video, e.g.
-   streaming-app playback) and back. _handle() here reads the full type, keeps the
-   decryption keystream in step for every message, and tracks that signal in
-   `protected_content`, following chiaki-ng's ctrl.c.
+1. Network test: pyremoteplay's test stream sends BIG client_version 7, which current PS5
+   firmware rejects; chiaki-ng's Senkusha sends 9. After a 3 s timeout pyremoteplay falls back
+   to MTU 1454 / RTT 1 (chiaki-ng's fallback too), so we skip the test and use those directly.
+2. Disconnect: Session.stop() sets the stop event before Stream.stop(), which then never sends
+   "Client Disconnecting". stop() here sends it first. The PS5 still needs ~9 s after any
+   session ends before it accepts a new one.
+3. Session ID: the PS5 sends its session ID ~2 s after auth. Like chiaki-ng's fallback, we
+   use our own ID after EARLY_SESSION_ID seconds; the PS5 accepts it.
+4. Control messages: pyremoteplay reads only the low byte of the 16-bit type and ignores the
+   PS5's "display" messages (switching to/from content that can't be streamed).
 """
 from __future__ import annotations
 
@@ -41,12 +27,12 @@ from pyremoteplay.stream import RPStream
 _LOGGER = logging.getLogger(__name__)
 
 NETWORK_TEST = False
-FIXED_MTU = 1454  # chiaki-ng's fallback (session.c); also pyremoteplay's default
-FIXED_RTT = 1     # goes into the launch spec as "rtt": 1, matching chiaki-ng's 1000 us / 1000
-TEST_CLIENT_VERSION = 9  # chiaki-ng senkusha.c: msg.big_payload.client_version = 9
+FIXED_MTU = 1454  # chiaki-ng's fallback (session.c)
+FIXED_RTT = 1     # launch spec "rtt": 1, as chiaki-ng's 1000 us / 1000
+TEST_CLIENT_VERSION = 9  # chiaki-ng senkusha.c
 EARLY_SESSION_ID: float | None = 0.3  # seconds after auth; None = wait for the PS5's (~2 s)
 
-# Control-connection message types (chiaki-ng lib/src/ctrl.c)
+# Control message types, from chiaki-ng lib/src/ctrl.c
 CTRL_DISPLAYA = 0x01
 CTRL_SESSION_ID = 0x33
 CTRL_DISPLAYB = 0x16
@@ -56,6 +42,7 @@ CTRL_HEARTBEAT_REP = 0x1FE
 
 class Stream(RPStream):
     def _send_big(self):
+        # Adapted from pyremoteplay RPStream._send_big (GPL-3.0); test version from chiaki-ng.
         if not self._is_test:
             return super()._send_big()
         data = ProtoHandler.big_payload(
@@ -65,12 +52,10 @@ class Stream(RPStream):
         self.send_data(data, 1, 1)
 
     def send_disconnect(self) -> None:
-        """Tell the PS5 we're leaving, so it frees the session immediately."""
         if self.state == RPStream.STATE_READY and self._protocol:
             try:
-                # pyremoteplay's _disconnect() advances the sequence number twice and sends it
-                # as a non-protocol packet, so the PS5 ignores it. Send it the way the working
-                # heartbeat acks are sent (chiaki-ng: channel 1, flag 1).
+                # pyremoteplay's _disconnect() advances the sequence twice and sends a
+                # non-protocol packet, which the PS5 ignores. Channel 1 / flag 1 as in chiaki-ng.
                 self.send_data(ProtoHandler.disconnect_payload(), 1, 1, proto=True)
             except Exception:  # pylint: disable=broad-except
                 _LOGGER.debug("Couldn't send disconnect", exc_info=True)
@@ -79,13 +64,10 @@ class Stream(RPStream):
 class FastSession(Session):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        # None = no display message seen yet; True = PS5 showing protected (blanked) content.
-        self.protected_content: bool | None = None
+        self.protected_content: bool | None = None  # None until the PS5 sends a display message
         self._cant_display_a = False
         self._cant_display_b = False
-        # Called as on_protected_change(bool) from the event loop. Set by remote.Remote.
         self.on_protected_change = None
-        # Called as on_ctrl_message(type, payload) for every control message (probe/debugging).
         self.on_ctrl_message = None
         self._ctrl_buf = b""
 
@@ -100,7 +82,7 @@ class FastSession(Session):
                 task.cancel()
 
     async def _early_session_id(self) -> None:
-        # Wait until authenticated (state RUNNING), then give the PS5 EARLY_SESSION_ID seconds.
+        # Behaviour of chiaki-ng ctrl_message_set_fallback_session_id: seconds + 48 random bytes.
         give_up = time.monotonic() + 10
         while self.state != Session.State.RUNNING:
             if self.is_stopped or time.monotonic() > give_up:
@@ -114,20 +96,20 @@ class FastSession(Session):
             self._ready_event.set()
 
     def _handle(self, data: bytes):
-        """Replaces Session._handle (see note 4 at the top). TCP may deliver several messages
-        at once or split one, so frame them by the 4-byte payload length in each header."""
+        # TCP can merge or split messages: frame them by the 4-byte length in each header.
         self._ctrl_buf += data
         while len(self._ctrl_buf) >= 8:
             size = int.from_bytes(self._ctrl_buf[0:4], "big")
             if len(self._ctrl_buf) < 8 + size:
-                return  # wait for the rest
+                return
             message, self._ctrl_buf = self._ctrl_buf[:8 + size], self._ctrl_buf[8 + size:]
             self._handle_message(message)
 
     def _handle_message(self, data: bytes):
+        # Rewrite of pyremoteplay Session._handle (GPL-3.0).
         payload = data[8:]
         if payload:
-            # Decrypt every payload, even ones we ignore, so the keystream stays in step.
+            # Decrypt every payload, even ignored ones, to keep the keystream in step.
             payload = self._cipher.decrypt(payload)
         msg_type = int.from_bytes(data[4:6], "big")
         if self.on_ctrl_message:
@@ -139,7 +121,7 @@ class FastSession(Session):
         elif msg_type == CTRL_HEARTBEAT_REP:
             self._hb_last = time.time()
         elif msg_type == CTRL_SESSION_ID:
-            # Arrives after our early fallback ID too; keep whichever came first.
+            # Also arrives after an early fallback ID; the first one wins.
             if not self.session_id:
                 session_id = payload[2:]
                 try:
@@ -158,7 +140,7 @@ class FastSession(Session):
         if time.time() - self._hb_last > 5:
             self._send_hb_request()
 
-    # Same state machine as chiaki-ng ctrl.c (ctrl_message_received_displaya / _displayb).
+    # Ported from chiaki-ng ctrl.c ctrl_message_received_displaya / _displayb (AGPL-3.0).
     def _display_a(self, payload: bytes) -> None:
         if payload[0] == 0x01:
             self._cant_display_a = True
@@ -184,7 +166,7 @@ class FastSession(Session):
     def _start_stream(self, test=True, mtu=None, rtt=None):
         if test and not NETWORK_TEST:
             test, mtu, rtt = False, FIXED_MTU, FIXED_RTT
-        # Same as Session._start_stream, but builds our Stream subclass.
+        # Adapted from pyremoteplay Session._start_stream (GPL-3.0), using our Stream class.
         if not self.session_id:
             _LOGGER.error("Session ID not received")
             return
