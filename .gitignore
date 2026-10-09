@@ -17,4 +17,5 @@ psn_client.json
 build/
 dist/
 PS5Remote.exe
+KeyboardDS5.exe
 *-personal.exe

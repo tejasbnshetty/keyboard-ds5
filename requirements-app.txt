@@ -8,7 +8,7 @@ clr_loader==0.3.1
 bottle==0.13.4
 proxy_tools==0.1.0
 
-# Build only (making PS5Remote.exe)
+# Build only (making KeyboardDS5.exe)
 pyinstaller==6.22.3
 pyinstaller-hooks-contrib==2026.8
 altgraph==0.17.5

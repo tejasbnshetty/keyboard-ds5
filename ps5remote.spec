@@ -31,7 +31,7 @@ exe = EXE(
     a.binaries,
     a.datas,
     [],
-    name="PS5Remote-personal" if personal else "PS5Remote",
+    name="KeyboardDS5-personal" if personal else "KeyboardDS5",
     console=False,
     debug=False,
     upx=False,             # UPX-packed exes trigger antivirus false positives

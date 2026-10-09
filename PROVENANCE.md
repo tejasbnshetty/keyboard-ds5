@@ -83,7 +83,7 @@ This applies to anyone who distributes this project.
   copy. But pyremoteplay's source (`pyremoteplay/oauth.py`) does contain them, and every
   PyInstaller build bundles pyremoteplay, so **distributing any .exe also distributes those
   values**. The public build (`build.bat public`) doesn't add the builder's own
-  `psn_client.json`; a personal build (`PS5Remote-personal.exe`) does, and must never be
+  `psn_client.json`; a personal build (`KeyboardDS5-personal.exe`) does, and must never be
   distributed.
 - With any .exe release, include `LICENSE`, this file, and the third-party licence notices of the
   bundled dependencies.
