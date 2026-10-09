@@ -3,8 +3,8 @@
 A small Python server on a Windows PC that controls a PS5 over Sony's Remote Play
 protocol, so an iPhone web page can act as a TV-style remote. No video is decoded.
 
-> **Status:** Phase 1 (command line: discover, sign in, pair, wake, rest mode).
-> The phone UI comes in later phases.
+> **Status:** Phase 2 (command line: discover, sign in, pair, wake, rest mode, button
+> presses, keyboard remote). The phone UI comes in later phases.
 
 ## About the library
 
@@ -23,10 +23,9 @@ Known risks and workarounds:
 | Depends on `netifaces`, which needs Visual Studio to build on Python 3.11 | Uses `netifaces-plus` (prebuilt wheels) and installs with `--no-deps` |
 | Its PSN login link stopped working (issue #25) | Our own login (`ps5remote/psn.py`) uses chiaki-ng's current link |
 | `Profiles.save()` writes secrets to `~/.pyremoteplay` by default | We always save to `data/` |
-| One user reported "Version not accepted" after a 2023 firmware update (issue #22, unanswered) | Unconfirmed. `ps5.bat standby` tests the full connection in Phase 1, so we'll find out early |
-
-If the Remote Play connection turns out to be broken on your firmware, the fallback is to
-drive chiaki-ng's C library instead.
+| One user reported "Version not accepted" after a 2023 firmware update (issue #22, unanswered) | Not seen here: a full session works on our PS5 |
+| Its standby wait loop has an inverted comparison | We wait for the session to close ourselves |
+| It looks up the running game on the PlayStation Store after each status check | Turned off (`ps5.Device`) |
 
 ## Setup
 
@@ -109,6 +108,53 @@ Features Available in Rest Mode**:
 - **Stay Connected to the Internet**: On
 - **Enable Turning On PS5 from Network**: On
 
+## Phase 2: button presses
+
+### One press
+
+```powershell
+.\ps5.bat press ps
+```
+
+This connects, presses one button and disconnects. If the PS5 is asleep, it wakes it first and
+shows progress while it waits. Buttons: `up down left right cross circle triangle square
+options ps l1 r1 l2 r2`.
+
+### Keyboard remote
+
+```powershell
+.\ps5.bat remote
+```
+
+This stays connected, the same way the phone remote will. Keep the PowerShell window focused.
+
+| Key | Button | Key | Button |
+|---|---|---|---|
+| Arrow keys | D-pad (hold to scroll) | Enter | Cross (select) |
+| Backspace or Esc | Circle (back) | T / S | Triangle / Square |
+| P | PS button | O | Options |
+| Q / E | L1 / R1 | Z / C | L2 / R2 |
+| X or Ctrl+C | Quit and disconnect | | |
+
+- The first key press connects, and wakes the PS5 if needed. Each step is printed with a
+  timestamp, along with how long connecting took.
+- Holding an arrow key presses it once, then repeats after 0.4s at about 6 presses per second.
+- If the session drops, you'll see a `!!` line saying so. The next key press reconnects.
+
+### Press timing
+
+Each press holds the button down for **80 ms** before releasing it. To experiment, change it
+with `--ms`, for example `.\ps5.bat remote --ms 30` or `.\ps5.bat press cross --ms 200`. If
+presses are sometimes ignored, raise it. Repeat speed is set in `ps5remote/remote.py`
+(`REPEAT_DELAY`, `REPEAT_INTERVAL`).
+
+### How the code is organised
+
+- `ps5remote/remote.py`: the `Remote` class (connect, auto-wake, tap, hold/repeat,
+  dropped-session detection, clean disconnect). The phone server reuses this.
+- `ps5remote/keyremote.py`: the keyboard test mode.
+- `ps5remote/ps5.py`: discovery, status, pairing, wake.
+
 ## Your saved settings and secrets
 
 Everything is stored in `data/`, which is excluded from git (see `.gitignore`):
@@ -156,3 +202,8 @@ If your PS5's address changes, run `.\ps5.bat discover` again.
   Play app connected to the PS5 (only one session is allowed at a time). Run with `-v` for
   more detail, e.g. `.\ps5.bat -v standby`. Verbose logs never include your keys.
 - **Wake does nothing**: Check the rest-mode settings in step 4.
+- **"Another Remote Play app is already connected"**: Only one Remote Play session can be open
+  at a time. Close the PS Remote Play app on your phone or PC. After a dropped session the PS5
+  can hold on to the old one for a while, so the remote keeps retrying for up to 25 seconds.
+- **A press does nothing**: Try a longer press, e.g. `--ms 150`. Some screens (such as the
+  PS5 home screen while a game is loading) ignore input for a moment.

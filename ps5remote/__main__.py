@@ -6,6 +6,8 @@
   pair            link this PC to the PS5 using the PIN shown on the TV
   wake            wake the PS5 from rest mode
   standby         put the PS5 into rest mode
+  press BUTTON    connect, press one button, disconnect
+  remote          interactive keyboard remote that stays connected
 """
 from __future__ import annotations
 
@@ -14,9 +16,11 @@ import asyncio
 import ipaddress
 import logging
 import sys
+import time
 import webbrowser
 
 from . import config, ps5, psn
+from .remote import BUTTONS, DEFAULT_PRESS_MS, Remote
 
 
 def ask(prompt: str) -> str:
@@ -151,18 +155,59 @@ def cmd_wake(args) -> None:
         print("The PS5 is already awake. Put it in rest mode first to test waking it.")
         return
     print("Sending wake signal...")
-    if ps5.wake(wait=not args.no_wait):
-        print("The PS5 is awake." if not args.no_wait else "Wake signal sent.")
+    if args.no_wait:
+        ps5.send_wake()
+        print("Wake signal sent.")
+        return
+    start = time.monotonic()
+    if ps5.wake():
+        print(f"The PS5 is awake ({time.monotonic() - start:.1f}s).")
     else:
         sys.exit("Sent the wake signal, but the PS5 didn't report being awake within 45 seconds.")
 
 
+def print_event(kind: str, message: str) -> None:
+    print(message)
+
+
+async def _standby() -> bool:
+    remote = Remote(on_event=print_event)
+    try:
+        return await remote.standby()
+    finally:
+        remote.close()
+
+
 def cmd_standby(args) -> None:
-    print("Connecting to the PS5 to put it into rest mode (takes a few seconds)...")
-    if asyncio.run(ps5.standby()):
+    if asyncio.run(_standby()):
         print("Rest mode requested. The PS5's light should turn orange shortly.")
     else:
-        print("The PS5 is already asleep or not reachable.")
+        print("The PS5 is already asleep.")
+
+
+async def _press(button: str, press_ms: int) -> None:
+    remote = Remote(press_ms=press_ms, on_event=print_event)
+    try:
+        await remote.tap(button)
+        print(f"Pressed {button} ({press_ms} ms).")
+        await asyncio.sleep(0.5)  # let the release reach the PS5 before hanging up
+    finally:
+        remote.close()
+
+
+def cmd_press(args) -> None:
+    try:
+        asyncio.run(_press(args.button, args.ms))
+    except KeyboardInterrupt:
+        pass  # _press has already disconnected in its finally block
+
+
+def cmd_remote(args) -> None:
+    from . import keyremote  # Windows-only module
+    try:
+        asyncio.run(keyremote.run(args.ms))
+    except KeyboardInterrupt:
+        pass  # keyremote.run has already disconnected in its finally block
 
 
 def main() -> None:
@@ -182,10 +227,21 @@ def main() -> None:
     p.add_argument("--no-wait", action="store_true", help="don't wait for it to finish waking")
     p.set_defaults(func=cmd_wake)
     sub.add_parser("standby", help="put into rest mode").set_defaults(func=cmd_standby)
+    p = sub.add_parser("press", help="press one button (wakes and connects if needed)")
+    p.add_argument("button", choices=list(BUTTONS), type=str.lower)
+    p.add_argument("--ms", type=int, default=DEFAULT_PRESS_MS,
+                   help=f"how long to hold the button down (default {DEFAULT_PRESS_MS})")
+    p.set_defaults(func=cmd_press)
+    p = sub.add_parser("remote", help="interactive keyboard remote (stays connected)")
+    p.add_argument("--ms", type=int, default=DEFAULT_PRESS_MS,
+                   help=f"how long each press holds the button down (default {DEFAULT_PRESS_MS})")
+    p.set_defaults(func=cmd_remote)
 
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO if args.verbose else logging.WARNING,
-                        format="%(levelname)s %(name)s: %(message)s")
+                        format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+    if args.verbose:
+        logging.getLogger("ps5remote").setLevel(logging.DEBUG)
     ps5.quiet_library_logs(args.verbose)
     ps5.use_windows_event_loop()
     try:
