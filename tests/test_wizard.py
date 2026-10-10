@@ -18,6 +18,8 @@ class FakeServer:
         self.events = []
         self.reloaded = 0
         self.forgotten = 0
+        self.pick_file = None
+        self.restart = None
 
     async def broadcast(self, payload):
         self.sent.append(payload)

@@ -7,6 +7,7 @@ import asyncio
 import logging
 import logging.handlers
 import re
+import subprocess
 import sys
 import threading
 import time
@@ -113,21 +114,41 @@ def parse_args(argv=None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
+def relaunch_command(debug=False, browser=False, setup=False, data_dir=None) -> list[str]:
+    """How to start the app again with the same options (after installing support files)."""
+    base = [sys.executable] if config.FROZEN else [sys.executable, "-m", "ps5remote.app"]
+    return (base + (["--debug"] if debug else []) + (["--browser"] if browser else [])
+            + (["--setup"] if setup else []) + (["--data-dir", str(data_dir)] if data_dir else []))
+
+
+def _spawn(command: list[str]) -> None:
+    flags = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+    subprocess.Popen(command, close_fds=True, creationflags=flags)  # pylint: disable=consider-using-with
+
+
 def run(debug=False, browser=False, setup=False, data_dir=None, console=False) -> None:
     if data_dir:
         config.set_data_dir(data_dir)
     redact = setup_logging(debug, console)
     ps5.use_windows_event_loop()
     _LOGGER.info("Data folder: %s", config.DATA_DIR)
+    command = relaunch_command(debug, browser, setup, data_dir)
     if browser:
-        return _run_browser(setup, redact)
-    return _run_window(debug, setup, redact)
+        return _run_browser(setup, redact, command)
+    return _run_window(debug, setup, redact, command)
 
 
-def _run_browser(setup: bool, redact: Redact) -> None:
+def _run_browser(setup: bool, redact: Redact, command: list[str]) -> None:
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
-    server = AppServer(open_login=None, force_setup=setup)  # sign-in uses the paste fallback
+
+    def restart() -> None:
+        _LOGGER.info("Restarting")
+        _spawn(command)
+        loop.call_soon_threadsafe(loop.stop)
+
+    # Browser mode: sign-in uses the paste fallback, and support files can only be downloaded.
+    server = AppServer(open_login=None, force_setup=setup, pick_file=None, restart=restart)
     redact.extra.append(server.token)
     url = loop.run_until_complete(server.start())
     print("Opening the interface in your default browser. Press Ctrl+C here to stop.")
@@ -142,11 +163,30 @@ def _run_browser(setup: bool, redact: Redact) -> None:
         print("Stopped.")
 
 
-def _run_window(debug: bool, setup: bool, redact: Redact) -> None:
+SUPPORT_FILE_TYPES = ("pyremoteplay files (*.whl;*.tar.gz;*.py)", "All files (*.*)")
+
+
+def _run_window(debug: bool, setup: bool, redact: Redact, command: list[str]) -> None:
     import webview  # imported here so the server can be tested without a GUI
 
     loop = asyncio.new_event_loop()
-    server = AppServer(open_login=make_login_opener(webview), force_setup=setup)
+    windows: list = []
+
+    def pick_file() -> str | None:
+        """Native open dialog (called from the server thread). The chosen path or None."""
+        if not windows:
+            return None
+        chosen = windows[0].create_file_dialog(webview.FileDialog.OPEN, file_types=SUPPORT_FILE_TYPES)
+        return chosen[0] if chosen else None
+
+    def restart() -> None:
+        _LOGGER.info("Restarting")
+        _spawn(command)
+        if windows:
+            windows[0].destroy()
+
+    server = AppServer(open_login=make_login_opener(webview), force_setup=setup,
+                       pick_file=pick_file, restart=restart)
     redact.extra.append(server.token)
     started = threading.Event()
     result: dict = {}
@@ -174,8 +214,8 @@ def _run_window(debug: bool, setup: bool, redact: Redact) -> None:
     title = "Keyboard DS5"
     if AppServer.build_info()["personal"]:
         title += " (personal build - do not distribute)"
-    webview.create_window(title, result["url"], width=660, height=820,
-                          min_size=(420, 600), background_color="#0e1015")
+    windows.append(webview.create_window(title, result["url"], width=660, height=820,
+                                         min_size=(420, 600), background_color="#0e1015"))
     # private_mode: no cookies or storage kept on disk, including Sony's sign-in.
     webview.start(private_mode=True, debug=debug)
 

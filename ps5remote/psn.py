@@ -19,7 +19,7 @@ from urllib.parse import parse_qs, quote, urlparse
 import requests
 from pyremoteplay.profile import UserProfile
 
-from . import config
+from . import config, keyfree
 
 REDIRECT_URL = "https://remoteplay.dl.playstation.net/remoteplay/redirect"
 SCOPES = (
@@ -38,6 +38,8 @@ class PSNError(Exception):
 
 
 def _client() -> tuple[str, str] | None:
+    if keyfree.ACTIVE:
+        return None   # the public build has no PSN sign-in: the account ID is entered by hand
     env_id = os.environ.get("PS5REMOTE_PSN_CLIENT_ID")
     env_secret = os.environ.get("PS5REMOTE_PSN_CLIENT_SECRET")
     if env_id and env_secret:

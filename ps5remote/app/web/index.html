@@ -25,14 +25,40 @@
   <section id="wizard" class="wizard" hidden>
     <h1>Set up Keyboard DS5</h1>
     <ol id="wiz-progress" class="wiz-progress">
-      <li data-step="1">Find PS5</li><li data-step="2">Account</li><li data-step="3">Pair</li>
-      <li data-step="4">Rest mode</li><li data-step="5">Done</li>
+      <li data-step="1">Support files</li><li data-step="2">Find PS5</li><li data-step="3">Account</li><li data-step="4">Pair</li>
+      <li data-step="5">Rest mode</li><li data-step="6">Done</li>
     </ol>
     <div id="wiz-busy" class="banner info" hidden></div>
     <div id="wiz-error" class="banner error" hidden></div>
 
     <div class="wiz-step" data-step="1">
-      <h2>1. Find your PS5</h2>
+      <h2>Remote Play support files</h2>
+      <p>Talking to a PS5 needs five small key tables that are part of the Remote Play protocol.
+        This app doesn't include them. They come from
+        <a id="wiz-support-pypi" target="_blank" rel="noopener noreferrer">pyremoteplay
+        <span class="support-version"></span></a>, an open-source Remote Play library published on
+        PyPI under the GPL-3.0 licence.</p>
+      <p>The app downloads that package from PyPI only when you click below
+        (<span id="wiz-support-size"></span>), checks it against pinned SHA-256 checksums, reads the
+        five PS5 tables out of it without running any of its code, and keeps them in your data
+        folder. Nothing else is sent anywhere.</p>
+      <div class="row">
+        <button id="wiz-support-download" class="action primary">Download from PyPI</button>
+        <button id="wiz-support-file" class="action">I have the file…</button>
+      </div>
+      <p id="wiz-support-file-hint" class="hint-left">Already downloaded it? Choose the
+        pyremoteplay <span class="support-version"></span> wheel (.whl), its source archive
+        (.tar.gz), or its <code>keys.py</code>.</p>
+      <p id="wiz-support-nofile" class="hint-left" hidden>Choosing a file isn't available in
+        browser mode; use Download from PyPI, or open the app window instead.</p>
+      <div id="wiz-support-restart" class="banner info" hidden>Support files installed.
+        <button id="wiz-support-restart-btn" class="action primary">Restart to finish</button>
+      </div>
+      <p id="wiz-support-ok" class="ok-line" hidden>Support files ready ✓</p>
+    </div>
+
+    <div class="wiz-step" data-step="2">
+      <h2>Find your PS5</h2>
       <p>Turn the PS5 <strong>fully on</strong> (not rest mode) and make sure this PC is on the
         same network. Then search.</p>
       <button id="wiz-search" class="action primary">Search for PS5</button>
@@ -47,11 +73,11 @@
       <p id="wiz-chosen" class="ok-line" hidden></p>
     </div>
 
-    <div class="wiz-step" data-step="2">
-      <h2>2. Your PSN account</h2>
+    <div class="wiz-step" data-step="3">
+      <h2>Your PSN account</h2>
       <p>Pairing needs your PSN account ID. Only the account ID is kept; your password never
         touches this app.</p>
-      <div id="wiz-psn-missing" class="banner info" hidden>Sign-in with PlayStation isn't set up
+      <div id="wiz-psn-missing" class="banner info" hidden>Sign-in with PlayStation isn't available
         in this copy of the app, so enter your account ID below.</div>
       <div id="wiz-keep" hidden>
         <p>Already set up for <strong id="wiz-existing"></strong>.</p>
@@ -100,8 +126,8 @@
       <p id="wiz-signed" class="ok-line" hidden></p>
     </div>
 
-    <div class="wiz-step" data-step="3">
-      <h2>3. Pair with the PS5</h2>
+    <div class="wiz-step" data-step="4">
+      <h2>Pair with the PS5</h2>
       <ol class="steps">
         <li>On the PS5 (fully on): <strong>Settings → System → Remote Play</strong>, and turn on
           <strong>Enable Remote Play</strong>.</li>
@@ -113,8 +139,8 @@
       <p id="wiz-paired" class="ok-line" hidden>Paired ✓</p>
     </div>
 
-    <div class="wiz-step" data-step="4">
-      <h2>4. Rest mode settings (for Wake)</h2>
+    <div class="wiz-step" data-step="5">
+      <h2>Rest mode settings (for Wake)</h2>
       <p>To wake the PS5 from this app, turn on both of these on the PS5 under
         <strong>Settings → System → Power Saving → Features Available in Rest Mode</strong>:</p>
       <ul class="steps"><li><strong>Stay Connected to the Internet</strong></li>
@@ -126,8 +152,8 @@
       <p class="hint-left">You can skip this and test later.</p>
     </div>
 
-    <div class="wiz-step" data-step="5">
-      <h2>5. All set</h2>
+    <div class="wiz-step" data-step="6">
+      <h2>All set</h2>
       <p>Try a button: the PS5 should open its home menu.</p>
       <div class="row"><button id="wiz-test-press" class="action">Press the PS button</button>
         <button id="wiz-finish" class="action primary">Open the remote</button></div>
@@ -338,6 +364,16 @@
         </div>
         <p id="data-dir" class="hint-left small"></p>
       </div>
+      <div id="support-panel" class="account" hidden>
+        <h3>Remote Play support files</h3>
+        <p id="support-status" class="hint-left"></p>
+        <div class="row">
+          <button id="support-download" class="action">Re-download from PyPI</button>
+          <button id="support-file" class="action">Choose file…</button>
+          <button id="support-remove" class="action danger">Remove support files</button>
+          <button id="support-restart" class="action primary" hidden>Restart to apply</button>
+        </div>
+      </div>
       <div class="account">
         <h3>About</h3>
         <p class="hint-left">Version, licence, source code and notices.</p>
@@ -367,7 +403,7 @@
     <div class="modal-box about-box" role="dialog" aria-modal="true" aria-labelledby="about-title">
       <h2 id="about-title">Keyboard DS5</h2>
       <p class="about-version">Version <span id="about-version"></span><span id="about-personal" hidden> (personal build: do not distribute)</span></p>
-      <p>Copyright © 2026 Keyboard DS5 contributors.</p>
+      <p>Copyright © 2026 Tejas Shetty and contributors.</p>
       <p>This program is free software: you can redistribute it and/or modify it under the terms of
         the GNU Affero General Public License, version 3 only (AGPL-3.0-only).</p>
       <p>This program is distributed in the hope that it will be useful, but <strong>WITHOUT ANY

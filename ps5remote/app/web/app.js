@@ -117,10 +117,13 @@ function applyStatus(s) {
   $("#streaming-name").textContent = s.streaming_app || "";
 
   const setup = $("#setup-warning");
-  setup.hidden = s.power !== "setup_needed";
-  setup.textContent = s.power === "setup_needed"
+  const setupText = s.power === "setup_needed"
     ? `${s.setup_error || "Not set up."} Open Settings → Run setup again.`
-    : "";
+    : s.support_missing
+      ? "Remote Play support files aren't loaded, so the app can't connect. Open Settings → Remote Play support files."
+      : "";
+  setup.hidden = !setupText;
+  setup.textContent = setupText;
 
   const busy = $("#busy");
   const msg = s.busy || (s.free_in > 0 ? `PS5 is still closing the last session - you can connect in ${s.free_in} s` : "");
@@ -796,9 +799,15 @@ $("#settings-form").addEventListener("submit", (e) => {
 
 function wizardActive() { return !!(state.setup && state.setup.active); }
 
+const DONE_STEP = 6;
+
 function wizSteps() {
+  // 1 support files (public build, until loaded), 2 find, 3 account, 4 pair, 5 rest mode, 6 done.
   // Re-pairing skips the rest-mode tips (already done once).
-  return state.setup && state.setup.mode === "repair" ? [1, 2, 3, 5] : [1, 2, 3, 4, 5];
+  const s = state.setup;
+  const sup = s && s.support;
+  return [1, 2, 3, 4, 5, 6].filter((n) => !(n === 1 && !(sup && sup.needed && !sup.loaded))
+    && !(n === 5 && s && s.mode === "repair"));
 }
 
 function wizSend(msg) {
@@ -814,7 +823,8 @@ async function applySetup(s) {
     wiz.step = 1;
     wiz.lastAction = null;
     releaseAll();
-    if (!s.consoles.length && !s.console && !s.busy) wizSend({ type: "setup_discover" });
+    state.setup = s;
+    if (wizSteps()[0] === 2) autoDiscover();   // otherwise it starts on reaching "Find PS5"
   }
   wiz.wasActive = s.active;
 
@@ -824,6 +834,7 @@ async function applySetup(s) {
   $("#data-dir").textContent = `Data folder: ${s.data_dir}`;
   $("#wiz-data-dir").textContent = `Data folder: ${s.data_dir}`;
   $("#forget").disabled = !s.existing_account && !s.current_ps5;
+  renderSupport(s.support);
 
   // First run of the .exe: offer to copy an older data folder.
   if (s.migration && !wiz.migrationAsked) {
@@ -839,7 +850,7 @@ function renderWizard() {
   const s = state.setup;
   if (!s || !s.active) return;
   const steps = wizSteps();
-  if (!steps.includes(wiz.step)) wiz.step = steps.find((n) => n > wiz.step) || 5;
+  if (!steps.includes(wiz.step)) wiz.step = steps.find((n) => n > wiz.step) || DONE_STEP;
 
   $$("#wiz-progress li").forEach((li) => {
     const n = Number(li.dataset.step);
@@ -892,9 +903,16 @@ function renderWizard() {
 
   const idx = steps.indexOf(wiz.step);
   $("#wiz-back").disabled = idx <= 0 || !!s.busy;
-  const ready = { 1: !!s.console, 2: !!s.signed_in, 3: !!s.paired, 4: true, 5: false }[wiz.step];
-  $("#wiz-next").hidden = wiz.step === 5;
+  const ready = {
+    1: !!(s.support && s.support.loaded), 2: !!s.console, 3: !!s.signed_in, 4: !!s.paired, 5: true, 6: false,
+  }[wiz.step];
+  $("#wiz-next").hidden = wiz.step === DONE_STEP;
   $("#wiz-next").disabled = !ready || !!s.busy;
+}
+
+function autoDiscover() {
+  const s = state.setup;
+  if (s && !s.consoles.length && !s.console && !s.busy) wizSend({ type: "setup_discover" });
 }
 
 function wizGo(delta) {
@@ -903,7 +921,54 @@ function wizGo(delta) {
   wiz.step = steps[idx];
   wiz.lastAction = null;
   renderWizard();
+  if (wiz.step === 2) autoDiscover();
 }
+
+// Remote Play support files (key-free public build): wizard step 1 and the Settings panel.
+function renderSupport(sup) {
+  if (!sup) return;
+  const restart = sup.restart_needed;
+  $$(".support-version").forEach((el) => { el.textContent = sup.version; });
+  const pypi = $("#wiz-support-pypi");
+  if (typeof sup.pypi_page === "string" && sup.pypi_page.startsWith("https://")) pypi.href = sup.pypi_page;
+  $("#wiz-support-size").textContent = `about ${sup.download_kb} KB`;
+  const busy = !!(state.setup && state.setup.busy);
+  for (const id of ["#wiz-support-download", "#support-download"]) $(id).disabled = busy || restart;
+  for (const id of ["#wiz-support-file", "#support-file"]) {
+    $(id).hidden = !sup.can_pick_file;
+    $(id).disabled = busy || restart;
+  }
+  $("#wiz-support-file-hint").hidden = !sup.can_pick_file;
+  $("#wiz-support-nofile").hidden = sup.can_pick_file;
+  $("#wiz-support-restart").hidden = !restart;
+  $("#wiz-support-restart-btn").hidden = !sup.can_restart;
+  $("#wiz-support-ok").hidden = !sup.loaded || restart;
+
+  $("#support-panel").hidden = !sup.needed;
+  $("#support-remove").disabled = busy || sup.state === "missing";
+  $("#support-restart").hidden = !(restart && sup.can_restart);
+  const where = sup.source ? ` from ${sup.source}` : "";
+  const when = sup.installed ? ` on ${sup.installed}` : "";
+  let text;
+  if (restart && sup.state === "ready") text = `Installed${where}${when}. Restart the app to start using them.`;
+  else if (restart) text = "Removed. Restart the app to apply this.";
+  else if (sup.loaded) text = `Installed${where}${when}, checked against the pinned checksums.`;
+  else if (sup.state === "invalid") text = "The stored support files are damaged or were changed, so they aren't used. Download them again.";
+  else text = "Not installed. Remote Play needs them to pair and connect.";
+  $("#support-status").textContent = text;
+}
+
+$("#wiz-support-download").addEventListener("click", () => wizSend({ type: "setup_support_download" }));
+$("#wiz-support-file").addEventListener("click", () => wizSend({ type: "setup_support_file" }));
+$("#wiz-support-restart-btn").addEventListener("click", () => send({ type: "setup_restart" }));
+$("#support-download").addEventListener("click", () => send({ type: "setup_support_download" }));
+$("#support-file").addEventListener("click", () => send({ type: "setup_support_file" }));
+$("#support-restart").addEventListener("click", () => send({ type: "setup_restart" }));
+$("#support-remove").addEventListener("click", async () => {
+  if (await confirmBox("Remove the Remote Play support files? The app can't pair or connect without them until you add them again (and restart).")) {
+    send({ type: "setup_support_remove" });
+  }
+});
 
 $("#wiz-next").addEventListener("click", () => wizGo(1));
 $("#wiz-back").addEventListener("click", () => wizGo(-1));

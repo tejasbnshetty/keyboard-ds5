@@ -20,7 +20,7 @@ from aiohttp import WSMsgType, web
 
 import ps5remote
 
-from .. import appmaps, config, keymaps, ps5, rpsession
+from .. import appmaps, config, keymaps, ps5, rpsession, support
 from .wizard import SetupWizard
 from ..gamepad import CENTRE
 from ..gameinput import ACTIONS, GameInput
@@ -43,9 +43,13 @@ CSP = ("default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' 
 
 class AppServer:
     def __init__(self, host: str = "127.0.0.1", port: int = 0, open_login=None,
-                 force_setup: bool = False):
+                 force_setup: bool = False, pick_file=None, restart=None):
         self.host = host
         self.port = port
+        # pick_file() -> path or None: a native open dialog (app window only).
+        # restart(): start the app again and close this one (after installing support files).
+        self.pick_file = pick_file
+        self.restart = restart
         self.token = secrets.token_urlsafe(32)
         self.settings = AppSettings.load()
         self.keymaps = keymaps.load(self.settings.hotkeys())
@@ -433,6 +437,7 @@ class AppServer:
 
     def _status_payload(self) -> dict:
         s = dict(self._status)
+        s["support_missing"] = not support.ready()
         if not self.remote:
             s.update(power="setup_needed", setup_error=self.setup_error)
         else:

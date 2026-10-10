@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: AGPL-3.0-only
-"""Setup wizard, server side: find the PS5, sign in to PSN, pair.
+"""Setup wizard, server side: support files (public build), find the PS5, account, pair.
 
 Nothing is written until pairing succeeds, so an abandoned or failed re-pair leaves the
 existing pairing untouched. The account ID never leaves the server.
@@ -12,7 +12,7 @@ import logging
 import webbrowser
 from typing import TYPE_CHECKING, Callable
 
-from .. import config, ps5, psn
+from .. import config, keyfree, ps5, psn, support
 
 if TYPE_CHECKING:
     from .server import AppServer
@@ -72,6 +72,25 @@ class SetupWizard:
             "error": self.error,
             "migration": str(migration) if migration else None,
             "data_dir": str(config.DATA_DIR),
+            "support": self.support_state(),
+        }
+
+    def support_state(self) -> dict:
+        """Remote Play support files (key-free public build). needed=False from source."""
+        found = support.status(support.default_dir())
+        installed = found["state"] == "ready"
+        return {
+            "needed": keyfree.ACTIVE,
+            "loaded": keyfree.TABLES_OK,
+            "state": found["state"],              # ready / missing / invalid (on disk)
+            "source": found["source"],
+            "installed": found["installed"],
+            "restart_needed": keyfree.ACTIVE and installed != keyfree.TABLES_OK,
+            "can_pick_file": self.server.pick_file is not None,
+            "can_restart": self.server.restart is not None,
+            "version": support.PYREMOTEPLAY_VERSION,
+            "pypi_page": support.PYPI_PAGE,
+            "download_kb": round(support.SOURCES[0].size / 1024),
         }
 
     async def push(self) -> None:
@@ -85,6 +104,10 @@ class SetupWizard:
             "setup_psn_keep": self._psn_keep, "setup_psn_manual": self._psn_manual,
             "setup_pair": self._pair,
             "setup_finish": self._finish, "migrate": self._migrate, "forget_all": self._forget,
+            "setup_support_download": self._support_download,
+            "setup_support_file": self._support_file,
+            "setup_support_remove": self._support_remove,
+            "setup_restart": self._restart,
         }
         handler = handlers.get(kind)
         if handler:
@@ -97,7 +120,7 @@ class SetupWizard:
         await self.push()
         try:
             return await coro
-        except (ps5.PS5Error, psn.PSNError) as err:
+        except (ps5.PS5Error, psn.PSNError, support.SupportError) as err:
             self.error = str(err)
         except Exception as err:  # pylint: disable=broad-except
             _LOGGER.exception("Setup step failed")
@@ -189,6 +212,49 @@ class SetupWizard:
             return
         self.signed_in, self._pending_account_id = online_id, account_id
         self.paste_needed = False
+
+    # Remote Play support files (key-free public build) ------------------------------------
+
+    async def _install_support(self, label: str, get_tables) -> None:
+        async def go():
+            tables, description = await asyncio.to_thread(get_tables)
+            await asyncio.to_thread(support.save, support.default_dir(), tables, description)
+            await self.server.event("info", f"Support files installed ({description}). Restart "
+                                            "the app to finish.")
+        await self._busy(label, go())
+        if self.error:
+            await self.server.event("error", self.error)
+
+    async def _support_download(self, _data: dict) -> None:
+        if not keyfree.ACTIVE:
+            return
+        await self._install_support(
+            f"Downloading pyremoteplay {support.PYREMOTEPLAY_VERSION} from PyPI...", support.download)
+
+    async def _support_file(self, _data: dict) -> None:
+        if not keyfree.ACTIVE:
+            return
+        if not self.server.pick_file:
+            self.error = ("Choosing a file needs the app window. In browser mode, use Download "
+                          "from PyPI.")
+            return
+        path = await asyncio.to_thread(self.server.pick_file)
+        if not path:
+            return   # cancelled
+        await self._install_support("Checking the file...", lambda: support.tables_from_file(path))
+
+    async def _support_remove(self, _data: dict) -> None:
+        if not keyfree.ACTIVE:
+            return
+        support.remove(support.default_dir())
+        await self.server.event("info", "Support files removed. Restart the app to apply this.")
+
+    async def _restart(self, _data: dict) -> None:
+        if not self.server.restart:
+            self.error = "Restart the app yourself to finish."
+            return
+        await self.server.event("info", "Restarting...")
+        self.server.restart()
 
     async def _psn_keep(self, _data: dict) -> None:
         existing = self.existing_account()
