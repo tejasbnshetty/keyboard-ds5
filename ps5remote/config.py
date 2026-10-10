@@ -133,8 +133,10 @@ _DECLINED = "migration-declined"
 
 def migration_candidates() -> tuple[Path, ...]:
     """Where an older data folder may be, most likely first: the pre-rename %APPDATA% folder,
-    then next to the .exe or one folder up (e.g. dist\\ inside the project)."""
-    return (LEGACY_USER_DIR / "data", ROOT / "data", ROOT.parent / "data")
+    then next to the .exe, one folder up, or two up (the one-folder build is
+    dist\\KeyboardDS5\\KeyboardDS5.exe inside the project, whose data\\ is two levels up)."""
+    return (LEGACY_USER_DIR / "data", ROOT / "data", ROOT.parent / "data",
+            ROOT.parent.parent / "data")
 
 
 def migration_source() -> Path | None:

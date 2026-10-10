@@ -107,6 +107,14 @@ def test_pre_rename_appdata_folder_is_offered_first(monkeypatch, tmp_path):
     assert config.migration_source() is None
 
 
+def test_project_data_found_from_the_one_folder_build(monkeypatch, tmp_path):
+    """<project>\\dist\\KeyboardDS5\\KeyboardDS5.exe finds <project>\\data."""
+    project = tmp_path / "project"
+    _frozen_exe(monkeypatch, project, exe_dir_name="dist/KeyboardDS5")
+    source_data = _old_data(project / "data")
+    assert config.migration_source() == source_data
+
+
 def test_nothing_to_offer_without_old_data(monkeypatch, tmp_path):
     _frozen_exe(monkeypatch, tmp_path)
     assert config.migration_source() is None
