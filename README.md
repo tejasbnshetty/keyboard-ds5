@@ -17,8 +17,9 @@ input only. No video is streamed or decoded, so it's light and connects in about
 > supported by Sony Interactive Entertainment. "PlayStation", "PS5", "PS4" and "Remote Play"
 > are trademarks of Sony Interactive Entertainment Inc. It uses an unofficial implementation of
 > the Remote Play protocol, which may stop working after a firmware update and may be against
-> Sony's terms of service. Use it at your own risk. No PSN sign-in values are included: you
-> supply your own (see [PSN sign-in values](#psn-sign-in-values)).
+> Sony's terms of service. Use it at your own risk. No Sony key tables or PSN sign-in values
+> are included in this repository or the public build (see
+> [PSN sign-in values](#psn-sign-in-values)).
 
 ## Compatibility
 
@@ -77,11 +78,15 @@ the file, then **Restart to finish**. Running from source skips it.
 2. **Account:** give the app your PSN account ID, in one of two ways:
    - **Enter my account ID instead:** type the number, or its 12-character encoded form ending
      in `=` ([how to find it](#finding-your-account-id)). An optional name is shown in the app.
-     If sign-in values aren't set up, or in the public .exe, this is the only option shown.
-   - **Sign in with PlayStation** (needs [sign-in values](#psn-sign-in-values)): opens Sony's
-     sign-in page and closes itself when you're done. If that doesn't work, use **Paste the
-     address instead**. Copy the address of the page the browser lands on (it may look blank
-     or show an error, which is normal) and paste it.
+     If sign-in isn't set up (or, in the public .exe, wasn't enabled), this is the only option
+     shown. It's always available, and the wizard switches to it if a sign-in fails.
+   - **Sign in with PlayStation** (needs [sign-in values](#psn-sign-in-values); in the public
+     .exe, enable it with the opt-in box in the support-files step): opens Sony's sign-in page
+     and closes itself when you're done. The window's title shows the page's domain, so you can
+     see it's Sony's. **Use my browser instead** opens the same page in your normal browser,
+     where the address bar shows it. Then, or if the window doesn't work, use **Paste the
+     address instead**: copy the address of the page the browser lands on (it may look blank or
+     show an error, which is normal) and paste it.
 
    Only your account ID is kept. Your password never touches the app, and Sony's token is
    discarded.
@@ -205,7 +210,8 @@ mouse-capture hotkeys (which can't be bound in a profile), the gaming settings a
 **PS5 & account**.
 
 **Remote Play support files** (public .exe only): where the support files came from, plus
-**Re-download from PyPI**, **Choose file…**, **Remove support files** and **Restart to apply**.
+**Re-download from PyPI**, **Choose file…**, **Remove support files** and **Restart to apply**,
+plus the **Also enable Sign in with PlayStation** box and **Remove sign-in values**.
 
 **About** (top-right corner, or at the bottom of Settings): the version, licence notice,
 links to the source code, licence and code origins, and the disclaimer. `--version` works
@@ -270,11 +276,18 @@ refuses to pair.
 
 ## PSN sign-in values
 
-Optional, and only when running from source or in a personal build: the public .exe has no PSN
-sign-in. Instead of [typing your account ID](#finding-your-account-id), the wizard can sign in
+Optional. Instead of [typing your account ID](#finding-your-account-id), the wizard can sign in
 to PSN through Sony's Remote Play sign-in page and read the account ID for you. That page
 requires an OAuth client ID and secret. **This project doesn't include them**: they aren't in
-its source code or git history, and you add them yourself.
+its source code, its git history or the public build.
+
+- **Public .exe:** tick **Also enable Sign in with PlayStation** in the support-files step (or in
+  Settings → Remote Play support files), which is off by default. The app then also reads the PS
+  Remote Play app's sign-in values from the pyremoteplay package you download or choose, the
+  same way as the key tables: parsed as data, never run, and checked against pinned hashes. It
+  keeps them in your data folder. This uses the PS Remote Play app's sign-in identity, as
+  chiaki-ng does. Without it, you type your account ID.
+- **Running from source, or a personal build:** add the values yourself, as below.
 
 **Where to find them.** Sony doesn't issue these to individuals. They are the official PS
 Remote Play app's values, and open-source Remote Play clients include them in their source:
@@ -339,7 +352,7 @@ so build it yourself from the source.
 
 **What "key-free" means.** The public build contains **no Sony key tables and no PSN sign-in
 values**. It leaves out pyremoteplay's `keys.py` and `oauth.py` and all of pyps4-2ndscreen, and
-gets the five PS5 tables at first run instead. It has no PSN sign-in; you type your account ID.
+gets the five PS5 tables at first run instead (and, if you opt in, the sign-in values).
 `build.bat` checks every build with `tools\check_keyfree.py`, which searches every file,
 archive member and compiled constant for the key tables, the sign-in values and
 pyps4-2ndscreen's key material, comparing them without printing them. The build fails if
@@ -361,8 +374,14 @@ first setup step:
 - **I have the file…** Choose the pyremoteplay 0.7.6 wheel (`.whl`), source archive (`.tar.gz`)
   or its `keys.py`. The same checks apply, and a changed file is rejected. This needs the app
   window; `--browser` mode can only download.
+- **Also enable Sign in with PlayStation** (off by default): from the same verified wheel or
+  source archive, also read the PS Remote Play app's sign-in values out of `oauth.py`, as data
+  and checked against pinned hashes, and keep them in `psn-sign-in.json` in the same folder.
+  This uses the PS Remote Play app's sign-in identity, as chiaki-ng does. A problem with the
+  sign-in values never stops the key tables from installing. Choosing only `keys.py` gives the
+  tables without sign-in; choosing `oauth.py` (with the box ticked) adds sign-in later.
 - Then **Restart to finish**: pyremoteplay reads the tables when it starts, so the app relaunches
-  itself.
+  itself. Sign-in values take effect at once.
 
 The stored tables are checked again every time the app starts. **Settings → Remote Play support
 files** shows where they came from, and can re-download, choose a file, or remove them.
@@ -412,6 +431,8 @@ artifact without creating a release.
 - `keymaps.json`: your profiles and bindings.
 - `support\remoteplay-tables.json` (public .exe only): the five Remote Play key tables, where
   they came from, and when. Checked against pinned hashes every time the app starts.
+- `support\psn-sign-in.json` (public .exe, only if you opted in): the PS Remote Play app's
+  sign-in values, checked against pinned hashes every time they're used.
 
 To start over, delete the data folder or use **Sign out & forget everything**.
 
@@ -428,9 +449,9 @@ until you delete it. If you say no, it won't ask again.
 - No password or PSN access token is ever stored. Only the account ID and pairing keys are.
 - Logs never contain keys, tokens, sign-in codes or the PIN. Every log line passes through a
   redaction filter.
-- The public .exe only goes online for the console on your network, plus PyPI when **you** click
-  Download in the support-files step. There's no telemetry and no update check. Running from
-  source, signing in to PSN (if set up) also contacts Sony's sign-in servers.
+- The public .exe only goes online for the console on your network, PyPI when **you** click
+  Download in the support-files step, and Sony's sign-in servers if you enabled and use Sign in
+  with PlayStation. There's no telemetry and no update check.
 
 ### Firewall
 
@@ -481,6 +502,9 @@ If the address does change, run the setup again or `.\ps5.bat discover`.
   green "Mouse captured" bar shows.
 - **Mouse won't capture:** click inside the window first, and wait a second after pressing
   Esc before capturing again. As a fallback, try `.\ps5.bat app --browser`.
+- **Sign in with PlayStation fails or the window closes:** the wizard opens **Enter my
+  account ID instead**; use that. Check the sign-in window's title shows a Sony domain, or use
+  **Use my browser instead**.
 - **"Couldn't download pyremoteplay from PyPI":** check the internet connection, or download
   `pyremoteplay-0.7.6-py3-none-any.whl` from
   [PyPI](https://pypi.org/project/pyremoteplay/0.7.6/#files) yourself and use **I have the

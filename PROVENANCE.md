@@ -23,7 +23,7 @@ through pyremoteplay's stream.
 | `ps5remote/rpsession.py` | **Mixed** (see below) |
 | `ps5remote/gamepad.py` | **Original code.** The button IDs, the two-byte event form (ID + 0x20 while pressed), analog L2/R2 values, newest-first event history, and the 8 ms / 200 ms state intervals are protocol behaviour **looked up** in chiaki-ng (`lib/src/feedback.c`, `feedbacksender.c`). Packets are built with pyremoteplay's `RPStream.send_feedback` and `ControllerState` |
 | `ps5remote/gameinput.py` | **Original** |
-| `ps5remote/support.py`, `ps5remote/keyfree.py` | **Original.** `support.py` holds **SHA-256 hashes only** (of the pyremoteplay 0.7.6 wheel and sdist, its `keys.py`, and each of the five PS5 tables), never key values. `keyfree.py` provides stand-ins for the modules the public build leaves out |
+| `ps5remote/support.py`, `ps5remote/keyfree.py` | **Original.** `support.py` holds **SHA-256 hashes only** (of the pyremoteplay 0.7.6 wheel and sdist, its `keys.py` and each of the five PS5 tables, and its `oauth.py`, the client ID and the decoded client secret), never key tables or sign-in values. The hashes are derived from those values, for verification only. `keyfree.py` provides stand-ins for the modules the public build leaves out |
 | `tools/*` | **Original** (build checks, notices, packaging, release notes, icon generator) |
 | `assets/keyboardds5.ico`, `assets/keyboardds5-256.png` | **Original artwork**, drawn by `tools/make_icon.py` |
 | `packaging/README.txt`, `packaging/RELEASE_NOTES.md` | **Original** |
@@ -78,7 +78,7 @@ session, not stored.
 
 | Name | Where | Purpose | Needed? | Also published in |
 |---|---|---|---|---|
-| PS Remote Play OAuth client ID and secret | pyremoteplay `oauth.py` (secret base64-encoded); pyps4-2ndscreen `oauth.py` | Sign in to PSN to read the account ID | **No.** The account ID can be entered by hand, and this app never uses pyremoteplay's copy (it reads your own `psn_client.json` instead, if any) | chiaki-ng `gui/include/psnaccountid.h` |
+| PS Remote Play OAuth client ID and secret | pyremoteplay `oauth.py` (secret base64-encoded); pyps4-2ndscreen `oauth.py` | Sign in to PSN to read the account ID | **No.** The account ID can be entered by hand. Source installs never use pyremoteplay's copy (they read your own `psn_client.json`, if any). The public build doesn't contain them; only if the user opts in are they read from the user's own pyremoteplay download (hash-checked, parsed as data) and stored in their data folder, for PSN sign-in only | chiaki-ng `gui/include/psnaccountid.h` |
 
 ### Other key-like values in dependencies
 
@@ -103,7 +103,7 @@ session, not stored.
 |---|---|---|---|---|
 | This repository | No | No | No | No |
 | Source install (after `setup.bat`) | In the installed pyremoteplay | In the installed pyremoteplay | In the installed pyps4-2ndscreen | Optional, in your data folder |
-| **Public build** (`build.bat public`, and CI) | **No.** The five PS5 tables are fetched by the user at first run (below) | **No** | **No** | **No** |
+| **Public build** (`build.bat public`, and CI) | **No.** The five PS5 tables are fetched by the user at first run (below) | **No.** Optionally, at the user's request, extracted from the pyremoteplay package the user downloads (hash-checked, parsed as data), stored in their data folder, and used only to sign in to PSN | **No** | **No** |
 | Personal build (never distributed) | Yes (all 10) | Yes | Yes | Yes |
 
 **The public build is key-free.** It leaves out `pyremoteplay.keys`, `pyremoteplay.oauth` and all
@@ -120,6 +120,15 @@ from disk. The download or file must match a pinned SHA-256. `keys.py` is parsed
 against its own pinned SHA-256, in the user's data folder. They are checked again at every
 start. The PS4 tables are never stored. So the user obtains the tables from pyremoteplay
 (GPL-3.0), just as a source install does, and this project doesn't distribute them.
+
+**Optional sign-in values.** If the user ticks "Also enable Sign in with PlayStation" (off by
+default), the app also reads `__CLIENT_ID` and `__CLIENT_SECRET` from `oauth.py` in the same
+verified wheel or source archive (or from an `oauth.py` the user chooses). The file must match a
+pinned SHA-256, it is parsed as data and never executed, and both values must match their own
+pinned SHA-256 hashes. They are stored separately (`support/psn-sign-in.json`), re-checked on
+every use, never logged, and used only for the PSN sign-in that reads the account ID. A problem
+with them never affects the key tables. The public build itself still contains neither value,
+which `tools/check_keyfree.py` verifies on every build.
 
 ## Licences
 
@@ -161,7 +170,9 @@ This applies to anyone who distributes this project.
   [Sony-derived material](#sony-derived-material)). The **public build** contains none of them
   (checked on every build). A **personal build** (`KeyboardDS5-personal.exe`) contains all of
   them plus the builder's own `psn_client.json`, and must never be distributed. CI refuses to
-  make one.
+  make one. When sign-in is used, the app identifies itself to Sony's sign-in service with the PS
+  Remote Play app's OAuth client, as chiaki-ng and pyremoteplay do. In the public build that only
+  happens if the user opted in.
 - With any .exe release, include `LICENSE`, this file, and the third-party licence notices of the
   bundled dependencies. `tools/package_release.py` adds all three to the public build:
   `LICENSE.txt`, `PROVENANCE.md` and `THIRD-PARTY-NOTICES.txt`, which is generated from what
