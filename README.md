@@ -50,9 +50,9 @@ while using this one.
 
    This creates a virtual environment in `.venv` and installs pinned dependencies.
 
-3. **Add your PSN sign-in values.** Pairing needs an OAuth client ID and secret for Sony's
-   Remote Play sign-in, which this project doesn't ship. See
-   [PSN sign-in values](#psn-sign-in-values).
+3. **Have your PSN account ID ready.** Pairing needs it. Either
+   [find your account ID](#finding-your-account-id) and type it into the wizard, or set up
+   [PSN sign-in values](#psn-sign-in-values) so the wizard can sign in and read it for you.
 
 4. **Start the app:**
 
@@ -71,11 +71,17 @@ Each step has plain instructions, Back / Next, and a **Retry** button after an e
 1. **Find PS5:** searches your network and lists the consoles it finds. You can also enter
    the IP address (on the PS5: **Settings → Network → Connection Status → View Connection
    Status → IPv4 Address**).
-2. **Sign in:** **Sign in with PlayStation** opens Sony's sign-in page and closes itself when
-   you're done. If that doesn't work, use **Paste the address instead**. Copy the address of
-   the page the browser lands on (it may look blank or show an error, which is normal) and
-   paste it. Only your numeric account ID is kept. Your password never touches the app, and
-   Sony's token is discarded.
+2. **Account:** give the app your PSN account ID, in one of two ways:
+   - **Enter my account ID instead:** type the number, or its 12-character encoded form ending
+     in `=` ([how to find it](#finding-your-account-id)). An optional name is shown in the app.
+     If sign-in values aren't set up, this is the only option shown.
+   - **Sign in with PlayStation** (needs [sign-in values](#psn-sign-in-values)): opens Sony's
+     sign-in page and closes itself when you're done. If that doesn't work, use **Paste the
+     address instead**. Copy the address of the page the browser lands on (it may look blank
+     or show an error, which is normal) and paste it.
+
+   Only your account ID is kept. Your password never touches the app, and Sony's token is
+   discarded.
 3. **Pair:** on the PS5, go to **Settings → System → Remote Play**, turn on **Enable Remote
    Play**, choose **Link Device**, and type the 8-digit PIN shown on the TV.
 4. **Rest mode (optional):** to wake the console from the app, turn on **Stay Connected to the
@@ -195,6 +201,10 @@ Press duration, idle disconnect, hold-repeat delay and speed, safe connect, the 
 mouse-capture hotkeys (which can't be bound in a profile), the gaming settings above, and
 **PS5 & account**.
 
+**About** (top-right corner, or at the bottom of Settings): the version, licence notice,
+links to the source code, licence and code origins, and the disclaimer. `--version` works
+from the command line too.
+
 ## Command-line tool
 
 Everything also works from PowerShell with `.\ps5.bat <command>`:
@@ -236,11 +246,28 @@ Each press holds the button for 80 ms. If presses are sometimes missed, raise it
 .\ps5.bat app --data-dir DIR # use a separate data folder
 ```
 
+## Finding your account ID
+
+Your PSN account ID is a number (up to 20 digits), not your online ID. The wizard also accepts
+the same ID encoded as 12 characters ending in `=`. A wrong ID does no harm: the console just
+refuses to pair.
+
+- **Sony's website, in your own browser.** Sign in at playstation.com, press F12 to open the
+  developer tools, choose **Network**, and reload the page. Search the requests for
+  `basicProfile` (the one ending in `/users/me`). Its response contains `"accountId"`. This
+  only reads your own data from Sony's site, but Sony may change the site, so the details can
+  move.
+- **chiaki-ng.** The open-source [chiaki-ng](https://github.com/streetpea/chiaki-ng) Remote Play
+  app can sign in to PSN and shows the encoded form.
+- **Third-party lookup websites** can find the ID from an online ID. They aren't run by Sony
+  or by this project, so use them at your own discretion.
+
 ## PSN sign-in values
 
-Pairing needs your PSN account ID, which is read by signing in to PSN through Sony's Remote
-Play sign-in page. That page requires an OAuth client ID and secret. **This project doesn't
-include them**: they aren't in its source code or git history, and you add them yourself.
+Optional. Instead of [typing your account ID](#finding-your-account-id), the wizard can sign in
+to PSN through Sony's Remote Play sign-in page and read the account ID for you. That page
+requires an OAuth client ID and secret. **This project doesn't include them**: they aren't in
+its source code or git history, and you add them yourself.
 
 **Where to find them.** Sony doesn't issue these to individuals. They are the official PS
 Remote Play app's values, and open-source Remote Play clients include them in their source:
@@ -273,8 +300,9 @@ $env:PS5REMOTE_PSN_CLIENT_SECRET = "<your client secret>"
 ```
 
 The app checks the environment variables first, then `psn_client.json` in the data folder, then
-`data\psn_client.json` in the project folder. Without values, the wizard's sign-in button
-explains what's missing. `psn_client.json` is gitignored. Never commit or share it.
+`data\psn_client.json` in the project folder (when running from source). The .exe only reads its
+own data folder, plus the values built into a personal build. Without values, the wizard offers
+account-ID entry instead. `psn_client.json` is gitignored. Never commit or share it.
 
 ## Building the .exe
 
@@ -291,9 +319,10 @@ published, so build it yourself from the source.
    ```
 
    This takes a minute or two and creates `dist\KeyboardDS5.exe`.
-3. **Add sign-in values for the .exe.** It keeps its data in `%APPDATA%\PS5Remote\data`, so
-   put your `psn_client.json` there (see [PSN sign-in values](#psn-sign-in-values)), or use
-   the environment variables.
+3. **Optional: sign-in values for the .exe.** Without them, you type your account ID in the
+   wizard. To use sign-in instead, put your `psn_client.json` in the .exe's data folder,
+   `%APPDATA%\KeyboardDS5\data` (see [PSN sign-in values](#psn-sign-in-values)), or use the
+   environment variables.
 4. **Run `dist\KeyboardDS5.exe`.** On first run it opens the setup wizard. If you've already
    paired from source, run it from `dist\` once first: it finds the project's `data` folder
    and offers to copy it (the original stays). After that you can move the .exe anywhere, for
@@ -311,7 +340,7 @@ distributing a build is distributing those values too.
 
 **Good to know:**
 - The .exe accepts the same options as `.\ps5.bat app` (e.g. `KeyboardDS5.exe --setup`), and
-  writes its logs to `%APPDATA%\PS5Remote\logs`.
+  writes its logs to `%APPDATA%\KeyboardDS5\logs`.
 - It isn't code-signed, so Windows SmartScreen may say "Windows protected your PC" the first
   time. Choose **More info → Run anyway**, but only for a build you made yourself or trust.
 - The PC running it needs Microsoft Edge WebView2 (built into Windows 11 and current Windows
@@ -323,7 +352,7 @@ distributing a build is distributing those values too.
 | Running | Data folder | Logs |
 |---|---|---|
 | From source (`app.bat`, `ps5.bat`) | `data\` in the project folder | `logs\` in the project folder |
-| The .exe | `%APPDATA%\PS5Remote\data` | `%APPDATA%\PS5Remote\logs` |
+| The .exe | `%APPDATA%\KeyboardDS5\data` | `%APPDATA%\KeyboardDS5\logs` |
 | With `--data-dir DIR` | `DIR` | `DIR\logs` |
 
 - `config.json`: the console's address, your PSN online ID and app settings.
@@ -331,9 +360,12 @@ distributing a build is distributing those values too.
   network with it could control your console.
 - `keymaps.json`: your profiles and bindings.
 
-To start over, delete the data folder or use **Sign out & forget everything**. On first run, the
-.exe offers to copy an existing `data` folder found next to it (or one folder up). It copies
-and never moves.
+To start over, delete the data folder or use **Sign out & forget everything**.
+
+On first run, the .exe looks for older data and **asks before copying it**: first in
+`%APPDATA%\PS5Remote\data` (the folder name before the project was renamed), then a `data`
+folder next to the .exe or one folder up. It copies and never moves, so the old folder stays
+until you delete it. If you say no, it won't ask again.
 
 ### Privacy and security
 
@@ -392,6 +424,10 @@ If the address does change, run the setup again or `.\ps5.bat discover`.
   green "Mouse captured" bar shows.
 - **Mouse won't capture:** click inside the window first, and wait a second after pressing
   Esc before capturing again. As a fallback, try `.\ps5.bat app --browser`.
+- **"Connected, but the PS5 never finished starting the session":** usually another Remote
+  Play app is connected; close it and try again. If it keeps happening after a PS5 system
+  update, the update may have changed the Remote Play protocol. Check this project's page for
+  a newer version or an open issue.
 - **More detail:** run `.\ps5.bat app --debug` (or `.\ps5.bat -v <command>`), and check
   `logs\app.log`.
 

@@ -83,6 +83,7 @@ function handle(msg) {
       applySettings(msg.settings);
       applyKeymaps(msg.keymaps);
       $("#personal-badge").hidden = !(msg.build && msg.build.personal);
+      applyAbout(msg.build || {});
       break;
     case "setup": applySetup(msg); break;
     case "status": applyStatus(msg); break;
@@ -235,8 +236,37 @@ function typingInField(e) {
 }
 
 function inputsBlocked() {
-  return !$("#modal").hidden || wizardActive();
+  return !$("#modal").hidden || !$("#about").hidden || wizardActive();
 }
+
+// About dialog ---------------------------------------------------------------------------
+
+function applyAbout(build) {
+  $("#about-version").textContent = build.version || "";
+  $("#about-personal").hidden = !build.personal;
+  const link = (id, url) => {
+    const a = $(id);
+    if (typeof url === "string" && url.startsWith("https://")) a.href = url; else a.removeAttribute("href");
+  };
+  link("#about-source", build.source_url);
+  link("#about-license", build.license_url);
+  link("#about-provenance", build.provenance_url);
+}
+
+function openAbout() {
+  if (state.captured) releaseCapture();
+  if (heldInputs.size || state.held) releaseAllInputs();
+  $("#about").hidden = false;
+  $("#about-close").focus();
+}
+
+function closeAbout() { $("#about").hidden = true; }
+
+$("#about-open").addEventListener("click", (e) => { e.currentTarget.blur(); openAbout(); });
+$("#about-open-settings").addEventListener("click", (e) => { e.currentTarget.blur(); openAbout(); });
+$("#about-close").addEventListener("click", closeAbout);
+$("#about").addEventListener("click", (e) => { if (e.target.id === "about") closeAbout(); });
+$("#about").addEventListener("keydown", (e) => { if (e.key === "Escape") { e.stopPropagation(); closeAbout(); } });
 
 document.addEventListener("keydown", (e) => {
   if (state.capture) { e.preventDefault(); finishCapture(e.code); return; }
@@ -839,7 +869,13 @@ function renderWizard() {
   chosen.hidden = !s.console;
   chosen.textContent = s.console ? `Using ${s.console.name} at ${s.console.ip} ✓` : "";
 
+  // Without sign-in values, entering the account ID is the only path: show it, hide sign-in.
   $("#wiz-psn-missing").hidden = s.psn_configured;
+  $("#wiz-signin-block").hidden = !s.psn_configured;
+  if (!s.psn_configured) $("#wiz-paste").hidden = true;
+  $("#wiz-show-manual").hidden = !s.psn_configured;
+  if (!s.psn_configured) $("#wiz-manual").hidden = false;
+  $("#wiz-manual-btn").disabled = !!s.busy;
   $("#wiz-signin").disabled = !s.psn_configured || !!s.busy || s.login_window_open;
   $("#wiz-keep").hidden = !s.existing_account || !!s.signed_in;
   $("#wiz-existing").textContent = s.existing_account || "";
@@ -849,7 +885,7 @@ function renderWizard() {
   if (s.paste_needed) $("#wiz-paste").hidden = false;
   const signed = $("#wiz-signed");
   signed.hidden = !s.signed_in;
-  signed.textContent = s.signed_in ? `Signed in as ${s.signed_in} ✓` : "";
+  signed.textContent = s.signed_in ? `Account ready: ${s.signed_in} ✓` : "";
 
   $("#wiz-paired").hidden = !s.paired;
   $("#wiz-pair").disabled = !!s.busy;
@@ -879,6 +915,14 @@ $("#wiz-ip").addEventListener("keydown", (e) => { if (e.key === "Enter") $("#wiz
 $("#wiz-signin").addEventListener("click", () => wizSend({ type: "setup_psn_open" }));
 $("#wiz-keep-btn").addEventListener("click", () => wizSend({ type: "setup_psn_keep" }));
 $("#wiz-show-paste").addEventListener("click", () => { $("#wiz-paste").hidden = false; $("#wiz-paste-url").focus(); });
+$("#wiz-show-manual").addEventListener("click", () => { $("#wiz-manual").hidden = false; $("#wiz-account-id").focus(); });
+$("#wiz-manual-btn").addEventListener("click", () => {
+  const accountId = $("#wiz-account-id").value.trim();
+  if (!accountId) { $("#wiz-account-id").focus(); return; }
+  wizSend({ type: "setup_psn_manual", account_id: accountId, online_id: $("#wiz-online-id").value.trim() });
+});
+$("#wiz-account-id").addEventListener("keydown", (e) => { if (e.key === "Enter") $("#wiz-manual-btn").click(); });
+$("#wiz-online-id").addEventListener("keydown", (e) => { if (e.key === "Enter") $("#wiz-manual-btn").click(); });
 $("#wiz-paste-btn").addEventListener("click", () => {
   const url = $("#wiz-paste-url").value.trim();
   $("#wiz-paste-url").value = "";   // don't keep the one-time code on screen

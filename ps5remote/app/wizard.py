@@ -82,7 +82,8 @@ class SetupWizard:
             "setup_start": self._start, "setup_cancel": self._cancel,
             "setup_discover": self._discover, "setup_use_console": self._use_console,
             "setup_psn_open": self._psn_open, "setup_psn_paste": self._psn_paste,
-            "setup_psn_keep": self._psn_keep, "setup_pair": self._pair,
+            "setup_psn_keep": self._psn_keep, "setup_psn_manual": self._psn_manual,
+            "setup_pair": self._pair,
             "setup_finish": self._finish, "migrate": self._migrate, "forget_all": self._forget,
         }
         handler = handlers.get(kind)
@@ -177,6 +178,17 @@ class SetupWizard:
             self.signed_in, self._pending_account_id = online_id, account_id
             self.paste_needed = False
         await self._busy("Signing in...", go())
+
+    async def _psn_manual(self, data: dict) -> None:
+        """The account ID typed in by hand, instead of signing in. Not saved until paired."""
+        try:
+            account_id = psn.parse_account_id(str(data.get("account_id", "")))
+            online_id = psn.check_online_id(str(data.get("online_id", "")))
+        except psn.PSNError as err:
+            self.error = str(err)
+            return
+        self.signed_in, self._pending_account_id = online_id, account_id
+        self.paste_needed = False
 
     async def _psn_keep(self, _data: dict) -> None:
         existing = self.existing_account()

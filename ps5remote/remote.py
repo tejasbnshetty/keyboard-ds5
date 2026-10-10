@@ -45,7 +45,12 @@ WATCH_INTERVAL = 2.0
 MISSED_POLLS = 2
 # The PS5 refuses new sessions for ~9 s after any session ends (measured 9.2-10.9 s).
 REUSE_DELAY = 9.5
-KEEPALIVE_S = 0.05       # how often the held state is re-checked (resent every 200 ms)
+NEVER_STARTED = (
+    "Connected, but the PS5 never finished starting the session. Close any other Remote Play app "
+    "that's connected to the PS5 and try again. If it keeps happening, especially after a PS5 "
+    "system update, the update may have changed the Remote Play protocol: check for a newer "
+    "version of Keyboard DS5.")
+KEEPALIVE_S = 0.05      # how often the held state is re-checked (resent every 200 ms)
 DEFAULT_STICK_HZ = 120
 
 
@@ -212,9 +217,7 @@ class Remote:
                     raise ps5.SessionBusy("The PS5 hasn't freed the last session yet.")
                 raise ps5.PS5Error(f"Remote Play connection failed. {ps5.explain(reason or '')}".strip())
             if not await device.async_wait_for_session(READY_TIMEOUT):
-                raise ps5.PS5Error(
-                    "Connected, but the PS5 never finished starting the session. Close any other "
-                    "Remote Play app that's connected to the PS5.")
+                raise ps5.PS5Error(NEVER_STARTED)
         except BaseException:
             self._teardown_session()
             raise

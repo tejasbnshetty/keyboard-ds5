@@ -42,7 +42,10 @@ def _client() -> tuple[str, str] | None:
     env_secret = os.environ.get("PS5REMOTE_PSN_CLIENT_SECRET")
     if env_id and env_secret:
         return env_id, env_secret
+    # The data folder; from source, also the project's data\ folder; a personal .exe's bundle.
     for folder in (config.DATA_DIR, config.SOURCE_DATA_DIR, config.RESOURCES):
+        if folder is None:
+            continue
         path = folder / CLIENT_FILE
         if path.is_file():
             try:
@@ -66,8 +69,8 @@ def _require_client() -> tuple[str, str]:
     client = _client()
     if not client:
         raise PSNError(
-            "PSN sign-in isn't configured: no psn_client.json found. See psn_client.example.json "
-            "and the README section 'PSN sign-in values'.")
+            "Sign-in with PlayStation isn't set up on this PC, so enter your account ID instead. "
+            "(To set up sign-in, see 'PSN sign-in values' in the README.)")
     if not _SAFE_ID.match(client[0]):
         raise PSNError("psn_client.json has an invalid client_id.")
     return client
@@ -130,6 +133,44 @@ def fetch_account(code: str) -> tuple[str, str]:
     online_id = info.get("online_id") or "psn-user"
     account_id = base64.b64encode(int(user_id).to_bytes(8, "little")).decode()
     return online_id, account_id
+
+
+_ONLINE_ID = re.compile(r"^[A-Za-z0-9_\-]{1,16}$")
+DEFAULT_ONLINE_ID = "psn-user"
+
+
+def parse_account_id(text: str) -> str:
+    """A PSN account ID typed in by hand -> the base64 form pairing uses.
+
+    Accepts the number (e.g. 1234567890123456789) or the encoded form (12 characters ending
+    in '=', e.g. as chiaki-ng shows it). Both are the same 64-bit ID: 8 bytes, little-endian."""
+    text = (text or "").strip().replace(" ", "")
+    if not text:
+        raise PSNError("Enter your account ID.")
+    if text.isdigit():
+        number = int(text)
+        if not 0 < number < 2 ** 64:
+            raise PSNError("That number is too large to be a PSN account ID.")
+        return base64.b64encode(number.to_bytes(8, "little")).decode()
+    try:
+        raw = base64.b64decode(text + "=" * (-len(text) % 4), validate=True)
+    except ValueError:
+        raw = b""
+    if len(raw) != 8 or not any(raw):
+        raise PSNError(
+            "That doesn't look like a PSN account ID. Enter the number (up to 20 digits) or the "
+            "encoded form (12 characters ending in '=').")
+    return base64.b64encode(raw).decode()
+
+
+def check_online_id(text: str) -> str:
+    """The name shown for a manually entered account. Optional; only used as a label here."""
+    text = (text or "").strip()
+    if not text:
+        return DEFAULT_ONLINE_ID
+    if not _ONLINE_ID.match(text):
+        raise PSNError("The name can have up to 16 letters, numbers, - and _ (like a PSN online ID).")
+    return text
 
 
 def make_profile(online_id: str, account_id: str, existing: dict | None = None) -> UserProfile:

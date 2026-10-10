@@ -18,13 +18,14 @@
       <span id="personal-badge" class="pill personal" hidden title="Contains private sign-in values">Personal build — do not distribute</span>
       <span id="link-dot" class="dot" aria-hidden="true"></span>
       <span id="link-text">Not connected</span>
+      <button id="about-open" class="link-btn about-link" type="button">About</button>
     </div>
   </header>
 
   <section id="wizard" class="wizard" hidden>
     <h1>Set up Keyboard DS5</h1>
     <ol id="wiz-progress" class="wiz-progress">
-      <li data-step="1">Find PS5</li><li data-step="2">Sign in</li><li data-step="3">Pair</li>
+      <li data-step="1">Find PS5</li><li data-step="2">Account</li><li data-step="3">Pair</li>
       <li data-step="4">Rest mode</li><li data-step="5">Done</li>
     </ol>
     <div id="wiz-busy" class="banner info" hidden></div>
@@ -47,19 +48,46 @@
     </div>
 
     <div class="wiz-step" data-step="2">
-      <h2>2. Sign in to PlayStation Network</h2>
-      <p>This reads your PSN account ID, which pairing needs. Only the account ID is kept; your
-        password never touches this app and Sony's sign-in token is discarded.</p>
-      <div id="wiz-psn-missing" class="banner error" hidden>Sign-in isn't configured in this copy
-        of the app (no psn_client.json). See the README section "PSN sign-in values".</div>
+      <h2>2. Your PSN account</h2>
+      <p>Pairing needs your PSN account ID. Only the account ID is kept; your password never
+        touches this app.</p>
+      <div id="wiz-psn-missing" class="banner info" hidden>Sign-in with PlayStation isn't set up
+        in this copy of the app, so enter your account ID below.</div>
       <div id="wiz-keep" hidden>
-        <p>Already signed in as <strong id="wiz-existing"></strong>.</p>
+        <p>Already set up for <strong id="wiz-existing"></strong>.</p>
         <button id="wiz-keep-btn" class="action primary">Keep this account</button>
-        <span class="hint-inline">or sign in with a different one below.</span>
+        <span class="hint-inline">or use a different one below.</span>
       </div>
-      <button id="wiz-signin" class="action primary">Sign in with PlayStation</button>
-      <p id="wiz-signin-hint" class="hint-left"></p>
-      <button id="wiz-show-paste" class="link-btn" type="button">Paste the address instead</button>
+      <div id="wiz-signin-block">
+        <button id="wiz-signin" class="action primary">Sign in with PlayStation</button>
+        <p id="wiz-signin-hint" class="hint-left"></p>
+        <button id="wiz-show-paste" class="link-btn" type="button">Paste the address instead</button>
+      </div>
+      <button id="wiz-show-manual" class="link-btn" type="button">Enter my account ID instead</button>
+      <div id="wiz-manual" class="paste" hidden>
+        <p>Your account ID is a long number, or the same ID encoded as 12 characters ending in
+          "=". Either works. It isn't your online ID (your PSN name).</p>
+        <details class="manual">
+          <summary>How do I find my account ID?</summary>
+          <ul class="steps">
+            <li><strong>Sony's website:</strong> sign in at playstation.com in your browser, press
+              F12 to open developer tools, choose <strong>Network</strong>, and reload the page.
+              Search the requests for <code>basicProfile</code> (one ending in
+              <code>/users/me</code>). Its response contains <code>"accountId"</code>. Sony may
+              change its website, so this can move.</li>
+            <li><strong>chiaki-ng</strong> (an open-source Remote Play app): its PSN login shows the
+              encoded form.</li>
+            <li>Third-party lookup websites can find it from your online ID. They aren't run by
+              Sony or by this project, so use them at your own discretion.</li>
+          </ul>
+          <p class="hint-left">A wrong ID can't do harm: the PS5 just refuses to pair.</p>
+        </details>
+        <div class="row"><input id="wiz-account-id" type="text" autocomplete="off" spellcheck="false"
+            placeholder="Account ID (number, or code ending in =)">
+          <input id="wiz-online-id" type="text" autocomplete="off" maxlength="16"
+            placeholder="Name to show (optional)"></div>
+        <div class="row"><button id="wiz-manual-btn" class="action primary">Use this account ID</button></div>
+      </div>
       <div id="wiz-paste" class="paste" hidden>
         <p>After signing in, the browser lands on a page starting with
           <code>https://remoteplay.dl.playstation.net/remoteplay/redirect?code=</code>.
@@ -310,6 +338,11 @@
         </div>
         <p id="data-dir" class="hint-left small"></p>
       </div>
+      <div class="account">
+        <h3>About</h3>
+        <p class="hint-left">Version, licence, source code and notices.</p>
+        <button id="about-open-settings" class="action" type="button">About Keyboard DS5</button>
+      </div>
     </section>
   </main>
 
@@ -327,6 +360,31 @@
         <button id="modal-cancel" class="action">Cancel</button>
         <button id="modal-ok" class="action primary">OK</button>
       </div>
+    </div>
+  </div>
+
+  <div id="about" class="modal" hidden>
+    <div class="modal-box about-box" role="dialog" aria-modal="true" aria-labelledby="about-title">
+      <h2 id="about-title">Keyboard DS5</h2>
+      <p class="about-version">Version <span id="about-version"></span><span id="about-personal" hidden> (personal build: do not distribute)</span></p>
+      <p>Copyright © 2026 Keyboard DS5 contributors.</p>
+      <p>This program is free software: you can redistribute it and/or modify it under the terms of
+        the GNU Affero General Public License, version 3 only (AGPL-3.0-only).</p>
+      <p>This program is distributed in the hope that it will be useful, but <strong>WITHOUT ANY
+        WARRANTY</strong>; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
+        PARTICULAR PURPOSE. See the licence for details.</p>
+      <ul class="about-links">
+        <li><a id="about-source" target="_blank" rel="noopener noreferrer">Source code</a></li>
+        <li><a id="about-license" target="_blank" rel="noopener noreferrer">Licence (AGPL-3.0)</a></li>
+        <li><a id="about-provenance" target="_blank" rel="noopener noreferrer">Code origins and third-party licences</a></li>
+      </ul>
+      <p class="hint-left">Built on pyremoteplay (GPL-3.0), with protocol behaviour from chiaki-ng
+        (AGPL-3.0).</p>
+      <p class="hint-left small">Unofficial project. Not affiliated with, endorsed by, or supported by
+        Sony Interactive Entertainment. "PlayStation", "PS5", "PS4" and "Remote Play" are trademarks
+        of Sony Interactive Entertainment Inc. It uses an unofficial implementation of the Remote Play
+        protocol, which may stop working after a system update. Use at your own risk.</p>
+      <div class="row end"><button id="about-close" class="action primary" type="button">Close</button></div>
     </div>
   </div>
 

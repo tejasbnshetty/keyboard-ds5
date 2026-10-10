@@ -10,7 +10,7 @@ import sys
 import time
 import webbrowser
 
-from . import config, ps5, psn, rpsession, watch
+from . import SOURCE_URL, __version__, config, ps5, psn, rpsession, watch
 from .remote import BUTTONS, DEFAULT_PRESS_MS, Remote
 from .watch import WatchSettings
 
@@ -299,6 +299,8 @@ def cmd_app(args) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(prog="ps5.bat", description="Keyboard DS5 - command line")
+    parser.add_argument("--version", action="version",
+                        version=f"Keyboard DS5 {__version__} ({SOURCE_URL}), AGPL-3.0-only")
     parser.add_argument("-v", "--verbose", action="store_true", help="show more log output")
     parser.add_argument("--safe-connect", action="store_true",
                         help="wait for the PS5's own session ID (about 1.5 s slower to connect)")

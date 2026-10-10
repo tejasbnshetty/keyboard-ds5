@@ -12,6 +12,8 @@ import threading
 import time
 import webbrowser
 
+import ps5remote
+
 from .. import config, ps5, psn
 from .server import AppServer
 
@@ -101,6 +103,8 @@ def make_login_opener(webview):
 
 def parse_args(argv=None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(prog="KeyboardDS5", description="Keyboard DS5 app")
+    parser.add_argument("--version", action="version",
+                        version=f"%(prog)s {ps5remote.__version__} ({ps5remote.SOURCE_URL})")
     parser.add_argument("--debug", action="store_true", help="verbose logs and devtools")
     parser.add_argument("--browser", action="store_true",
                         help="open the interface in your default browser instead of a window")

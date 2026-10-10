@@ -9,8 +9,63 @@ from ps5remote import config, psn
 
 def test_not_configured_by_default():
     assert not psn.is_configured()
-    with pytest.raises(psn.PSNError, match="isn't configured"):
+    with pytest.raises(psn.PSNError, match="isn't set up.*account ID") as err:
         psn.login_url()
+    assert "psn_client.example.json" not in str(err.value)   # not shipped with a download
+
+
+def test_no_psn_client_lookup_next_to_the_exe(monkeypatch, data_dir):
+    """The .exe has no source data folder: only the data folder and a personal bundle count."""
+    monkeypatch.setattr(config, "SOURCE_DATA_DIR", None)
+    assert not psn.is_configured()
+
+
+@pytest.mark.parametrize("text, user_id", [
+    ("1", 1),
+    ("1234567890123456789", 1234567890123456789),
+    (" 1234 5678 9012 3456 789 ", 1234567890123456789),
+    (str(2 ** 64 - 1), 2 ** 64 - 1),
+])
+def test_parse_account_id_number(text, user_id):
+    assert base64.b64decode(psn.parse_account_id(text)) == user_id.to_bytes(8, "little")
+
+
+def test_parse_account_id_encoded_round_trip():
+    encoded = base64.b64encode((987654321).to_bytes(8, "little")).decode()
+    assert psn.parse_account_id(encoded) == encoded
+    assert psn.parse_account_id(encoded.rstrip("=")) == encoded   # padding optional
+    assert psn.parse_account_id(f"  {encoded} ") == encoded
+
+
+def test_number_and_encoded_forms_agree():
+    """The same ID typed either way pairs as the same account (as fetch_account encodes it)."""
+    user_id = 7340032000123456
+    encoded = base64.b64encode(user_id.to_bytes(8, "little")).decode()
+    assert psn.parse_account_id(str(user_id)) == psn.parse_account_id(encoded) == encoded
+
+
+@pytest.mark.parametrize("text", [
+    "", "   ", "0", str(2 ** 64), "-5", "12.5", "hello", "AAAAAAAAAAA=",   # all zero
+    "QUJD", "QUJDREVGR0hJSktM",                                         # 3 and 12 bytes
+    "not base64!!", "ΩΩΩΩ",
+])
+def test_parse_account_id_rejects(text):
+    with pytest.raises(psn.PSNError):
+        psn.parse_account_id(text)
+
+
+@pytest.mark.parametrize("text, expected", [
+    ("", psn.DEFAULT_ONLINE_ID), ("  ", psn.DEFAULT_ONLINE_ID), ("Player_1", "Player_1"),
+    ("a-b", "a-b"),
+])
+def test_check_online_id(text, expected):
+    assert psn.check_online_id(text) == expected
+
+
+@pytest.mark.parametrize("text", ["x" * 17, "has space", "<b>", "naïve"])
+def test_check_online_id_rejects(text):
+    with pytest.raises(psn.PSNError):
+        psn.check_online_id(text)
 
 
 def test_client_from_data_folder(psn_client):

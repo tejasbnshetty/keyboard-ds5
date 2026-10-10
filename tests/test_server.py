@@ -477,6 +477,30 @@ def test_events_are_written_to_the_log(caplog):
                for r in caplog.records)
 
 
+def test_init_has_about_details():
+    import ps5remote
+
+    async def test(server, base, session):
+        async with await open_ws(server, base, session) as ws:
+            return (await hello(ws))["init"]["build"]
+    build = serve(test)
+    assert build["version"] == ps5remote.__version__ and build["name"] == "Keyboard DS5"
+    for key in ("source_url", "license_url", "provenance_url"):
+        assert build[key].startswith("https://github.com/")
+    assert build["license_url"].endswith("/LICENSE")
+    assert build["personal"] is False
+
+
+def test_page_has_about_dialog_with_legal_notices():
+    async def test(server, base, session):
+        async with session.get(base + "/") as resp:
+            return await resp.text()
+    page = serve(test)
+    for text in ("WITHOUT ANY", "Affero General Public License", "AGPL-3.0-only",
+                 "Not affiliated with", "Source code", 'id="about-open"'):
+        assert text in page
+
+
 def test_init_lists_actions_and_new_buttons():
     async def test(server, base, session):
         async with await open_ws(server, base, session) as ws:

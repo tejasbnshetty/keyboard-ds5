@@ -351,6 +351,54 @@ def test_stick_rate_limit(remote, fake, monkeypatch):
     assert len(states) <= 2 + elapsed * 50   # 200 changes, at most 50 a second sent
 
 
+def test_session_that_never_starts_mentions_a_possible_protocol_change(paired, monkeypatch, fast_sleep):
+    """The real _open_session (not the fake): the console accepts, then never gets ready."""
+    torn_down = []
+
+    class Session:
+        error = ""
+        is_ready = False
+        is_stopped = False
+        on_protected_change = None
+
+    class Device:
+        def __init__(self, host):
+            self.session = Session()
+            self.is_on = True
+            self.controller = type("C", (), {"disconnect": lambda self: None})()
+
+        async def async_get_status(self):
+            return {"status-code": 200}
+
+        def get_users(self, profiles=None):
+            return ["tester"]
+
+        def create_session(self, user, profiles=None):
+            return self.session
+
+        async def connect(self):
+            return True
+
+        async def async_wait_for_session(self, timeout):
+            return False
+
+        def disconnect(self):
+            torn_down.append(True)
+
+    async def status(_host):
+        return {"status-code": 200}
+
+    monkeypatch.setattr(ps5, "Device", Device)
+    monkeypatch.setattr(ps5, "async_get_status", status)
+    r = Remote()
+    with pytest.raises(ps5.PS5Error) as err:
+        run(r.connect())
+    text = str(err.value)
+    assert "never finished starting" in text and "system update" in text
+    assert "Close any other Remote Play app" in text
+    assert torn_down   # the half-open session was closed
+
+
 def test_standby(remote, fake):
     calls = []
 

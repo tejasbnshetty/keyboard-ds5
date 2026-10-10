@@ -18,6 +18,8 @@ from pathlib import Path
 
 from aiohttp import WSMsgType, web
 
+import ps5remote
+
 from .. import appmaps, config, keymaps, ps5, rpsession
 from .wizard import SetupWizard
 from ..gamepad import CENTRE
@@ -114,7 +116,9 @@ class AppServer:
     @staticmethod
     def build_info() -> dict:
         personal = config.FROZEN and (config.RESOURCES / "PERSONAL_BUILD.txt").exists()
-        return {"personal": personal, "frozen": config.FROZEN}
+        return {"personal": personal, "frozen": config.FROZEN, "name": ps5remote.APP_NAME,
+                "version": ps5remote.__version__, "source_url": ps5remote.SOURCE_URL,
+                "license_url": ps5remote.LICENSE_URL, "provenance_url": ps5remote.PROVENANCE_URL}
 
     @property
     def url(self) -> str:

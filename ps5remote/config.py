@@ -1,9 +1,10 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 """Local settings and secrets.
 
-Data folder: <project>/data from source, %APPDATA%\\PS5Remote\\data as the .exe, or
+Data folder: <project>/data from source, %APPDATA%\\KeyboardDS5\\data as the .exe, or
 set_data_dir() / env PS5REMOTE_DATA_DIR. It holds config.json (PS5 address, user, settings),
 profiles.json (account ID and pairing keys), keymaps.json and optionally psn_client.json.
+The .exe used %APPDATA%\\PS5Remote before the rename: it offers to copy that (never moves it).
 """
 from __future__ import annotations
 
@@ -16,16 +17,19 @@ from pathlib import Path
 from pyremoteplay.profile import Profiles
 
 FROZEN = bool(getattr(sys, "frozen", False))
+APPDATA = Path(os.environ.get("APPDATA", Path.home()))
+LEGACY_USER_DIR = APPDATA / "PS5Remote"   # the .exe's folder before the rename
 if FROZEN:
     # PyInstaller .exe: bundled files are unpacked to _MEIPASS.
     ROOT = Path(sys.executable).resolve().parent
     RESOURCES = Path(getattr(sys, "_MEIPASS", ROOT))
-    USER_DIR = Path(os.environ.get("APPDATA", Path.home())) / "PS5Remote"
+    USER_DIR = APPDATA / "KeyboardDS5"
+    SOURCE_DATA_DIR: Path | None = None
 else:
     ROOT = Path(__file__).resolve().parent.parent
     RESOURCES = ROOT
     USER_DIR = ROOT
-SOURCE_DATA_DIR = ROOT / "data"
+    SOURCE_DATA_DIR = ROOT / "data"   # also read for psn_client.json, so --data-dir runs sign in
 
 DATA_DIR: Path
 LOG_DIR: Path
@@ -121,11 +125,17 @@ MIGRATE_FILES = ("config.json", "profiles.json", "keymaps.json", "psn_client.jso
 _DECLINED = "migration-declined"
 
 
+def migration_candidates() -> tuple[Path, ...]:
+    """Where an older data folder may be, most likely first: the pre-rename %APPDATA% folder,
+    then next to the .exe or one folder up (e.g. dist\\ inside the project)."""
+    return (LEGACY_USER_DIR / "data", ROOT / "data", ROOT.parent / "data")
+
+
 def migration_source() -> Path | None:
-    """An older data folder for the .exe to offer copying: next to it or one folder up."""
+    """An older data folder for the .exe to offer copying. The user is always asked first."""
     if not FROZEN or CUSTOM_DATA_DIR or PROFILES_FILE.exists() or (DATA_DIR / _DECLINED).exists():
         return None
-    for candidate in (ROOT / "data", ROOT.parent / "data"):
+    for candidate in migration_candidates():
         if (candidate / "profiles.json").is_file() and candidate.resolve() != DATA_DIR:
             return candidate
     return None

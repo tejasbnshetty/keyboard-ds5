@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 """Setup wizard, server side. Nothing is saved until pairing succeeds."""
 import asyncio
+import base64
 import json
 
 import pytest
@@ -120,7 +121,41 @@ def test_use_console_ok(server, monkeypatch):
 
 
 def test_sign_in_not_configured(server):
-    assert "isn't configured" in step(make(server), "setup_psn_open")["error"]
+    error = step(make(server), "setup_psn_open")["error"]
+    assert "account ID" in error and "psn_client.example.json" not in error
+
+
+def test_manual_account_id_without_sign_in_values(server, monkeypatch):
+    """The path for a download with no sign-in values: type the ID, then pair."""
+    w = make(server)
+    assert w.public_state()["psn_configured"] is False
+    state = step(w, "setup_psn_manual", account_id="1234567890123456789", online_id="Player_1")
+    assert state["signed_in"] == "Player_1" and not state["error"]
+    encoded = base64.b64encode((1234567890123456789).to_bytes(8, "little")).decode()
+    assert encoded not in json.dumps(state) and encoded not in json.dumps(server.sent)
+    assert "1234567890123456789" not in json.dumps(server.sent)
+    assert not config.PROFILES_FILE.exists()   # nothing saved until paired
+
+    w.console = {"ip": "10.0.0.9", "name": "PS5", "state": "awake"}
+    calls = []
+    monkeypatch.setattr(ps5, "pair_console", lambda *args: calls.append(args))
+    assert step(w, "setup_pair", pin="12345678")["paired"]
+    assert calls == [("10.0.0.9", "Player_1", "12345678", encoded)]
+
+
+def test_manual_account_id_name_is_optional(server):
+    state = step(make(server), "setup_psn_manual", account_id="42")
+    assert state["signed_in"] == psn.DEFAULT_ONLINE_ID
+
+
+@pytest.mark.parametrize("data, message", [
+    ({"account_id": ""}, "Enter your account ID"),
+    ({"account_id": "hello"}, "doesn't look like"),
+    ({"account_id": "42", "online_id": "bad name!"}, "up to 16"),
+])
+def test_manual_account_id_errors(server, data, message):
+    state = step(make(server), "setup_psn_manual", **data)
+    assert message in state["error"] and state["signed_in"] is None
 
 
 def test_sign_in_with_window(server, psn_client):

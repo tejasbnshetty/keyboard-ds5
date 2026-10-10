@@ -22,6 +22,7 @@ def data_dir(tmp_path, monkeypatch) -> Path:
         monkeypatch.setattr(config, name, getattr(config, name))
     # psn.py also looks for psn_client.json in these two folders.
     monkeypatch.setattr(config, "SOURCE_DATA_DIR", tmp_path / "source-data")
+    monkeypatch.setattr(config, "LEGACY_USER_DIR", tmp_path / "legacy-appdata")
     monkeypatch.setattr(config, "RESOURCES", tmp_path / "resources")
     monkeypatch.setattr(rpsession, "EARLY_SESSION_ID", rpsession.EARLY_SESSION_ID)
     path = tmp_path / "data"

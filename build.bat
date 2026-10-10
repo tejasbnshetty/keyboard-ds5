@@ -38,8 +38,8 @@ if "%PS5REMOTE_PERSONAL%"=="1" (
 ) else (
     echo Built dist\KeyboardDS5.exe   ^(public: your psn_client.json is not inside^)
 )
-echo The app keeps its data in %%APPDATA%%\PS5Remote. On first run it offers to copy an
-echo existing data folder found next to the .exe or one folder up.
+echo The app keeps its data in %%APPDATA%%\KeyboardDS5. On first run it asks before copying
+echo older data (%%APPDATA%%\PS5Remote, or a data folder next to the .exe or one folder up).
 exit /b 0
 
 :error

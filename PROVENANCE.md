@@ -18,7 +18,7 @@ through pyremoteplay's stream.
 |---|---|
 | `ps5remote/__init__.py`, `config.py`, `remote.py`, `watch.py`, `keyremote.py`, `__main__.py` | **Original.** They call pyremoteplay's public API |
 | `ps5remote/app/*` (incl. the setup wizard), `ps5remote/settings.py`, `ps5remote/keymaps.py`, `ps5remote/appmaps.py` (Windows app) | **Original** |
-| `ps5remote/psn.py` | **Original code.** The redirect URL, scopes and login-URL parameters are Sony's values, taken from chiaki-ng (`gui/include/psnaccountid.h`). The OAuth **client ID/secret are not in the source or the git history**: you supply your own `psn_client.json` (see the README section "PSN sign-in values"). The account-ID encoding (8-byte little-endian, base64) is the same behaviour as pyremoteplay and chiaki-ng, written independently |
+| `ps5remote/psn.py` | **Original code.** The redirect URL, scopes and login-URL parameters are Sony's values, taken from chiaki-ng (`gui/include/psnaccountid.h`). The OAuth **client ID/secret are not in the source or the git history**: sign-in is optional (the account ID can be entered by hand), and anyone who wants it supplies their own `psn_client.json` (see the README section "PSN sign-in values"). The account-ID encoding (8-byte little-endian, base64) is the same behaviour as pyremoteplay and chiaki-ng, written independently |
 | `ps5remote/ps5.py` | **Original**, except `Device.create_session`, an adapted copy (~10 lines) of pyremoteplay `RPDevice.create_session`. Error-code values are protocol constants also listed in pyremoteplay and chiaki-ng |
 | `ps5remote/rpsession.py` | **Mixed** (see below) |
 | `ps5remote/gamepad.py` | **Original code.** The button IDs, the two-byte event form (ID + 0x20 while pressed), analog L2/R2 values, newest-first event history, and the 8 ms / 200 ms state intervals are protocol behaviour **looked up** in chiaki-ng (`lib/src/feedback.c`, `feedbacksender.c`). Packets are built with pyremoteplay's `RPStream.send_feedback` and `ControllerState` |
@@ -43,6 +43,58 @@ through pyremoteplay's stream.
 **Only looked up in chiaki-ng, not copied:** RP-Version strings, stream protocol version 12, the
 launch-spec contents, the RP-Application-Reason codes, the disconnect message format, and the
 fact that the PS5 sends its session ID late.
+
+## Sony-derived material
+
+Remote Play is Sony's protocol, so a working client needs some of Sony's values. This section
+lists them by **name and purpose only**; no values are reproduced here.
+
+**This repository's own code contains no cryptographic keys and no sign-in credentials.** It
+only contains protocol constants (message types, button IDs, timings, URLs and error codes,
+listed below). The key tables and sign-in credentials come from **pyremoteplay**, which you
+install yourself from PyPI (`setup.bat` does this). They are not copied into this repository.
+All of them are also published in chiaki-ng's source.
+
+### Static key material (in pyremoteplay, `pyremoteplay/keys.py`)
+
+| Name | Size | Purpose | Needed? | Also published in chiaki-ng (`lib/src/rpcrypt.c`) |
+|---|---|---|---|---|
+| `HMAC_KEY_PS5`, `HMAC_KEY_PS4` | 16 bytes each | Derive the cipher for a session's authentication headers and control channel | Yes, for every session | `hmac_key_ps5`, `hmac_key_ps4` |
+| `SESSION_KEY_0_PS5`, `SESSION_KEY_0_PS4` | 3,584 bytes each | Derive the session key from the console's nonce and the pairing key | Yes, for every session | `keys_a_ps5`, `keys_a_ps4` |
+| `SESSION_KEY_1_PS5`, `SESSION_KEY_1_PS4` | 3,584 bytes each | As above (second table) | Yes, for every session | `keys_b_ps5`, `keys_b_ps4` |
+| `REG_KEY_0_PS5`, `REG_KEY_0_PS4` | 512 bytes each | Derive the registration key from the PIN while pairing | Only when pairing | `ps5_keys_0`, `ps4_keys_0` |
+| `REG_KEY_1_PS5`, `REG_KEY_1_PS4` | 512 bytes each | As above (second table) | Only when pairing | `ps5_keys_1`, `ps4_keys_1` |
+
+The PS4 tables are present because pyremoteplay supports both consoles; this app only uses the
+PS5 ones. The stream's handshake key and elliptic-curve key are generated fresh for each
+session, not stored.
+
+### Sign-in credentials
+
+| Name | Where | Purpose | Needed? | Also published in |
+|---|---|---|---|---|
+| PS Remote Play OAuth client ID and secret | pyremoteplay `oauth.py` (secret base64-encoded); pyps4-2ndscreen `oauth.py` | Sign in to PSN to read the account ID | **No.** The account ID can be entered by hand, and this app never uses pyremoteplay's copy (it reads your own `psn_client.json` instead, if any) | chiaki-ng `gui/include/psnaccountid.h` |
+
+### Other key-like values in dependencies
+
+| Name | Where | Purpose | Needed? |
+|---|---|---|---|
+| `PUBLIC_KEY` (RSA public key) and `RANDOM_SEED` (16 bytes) | pyps4-2ndscreen `connection.py` | PS4 Second Screen protocol | **No.** Never used by this app (only pyps4-2ndscreen's Store lookup is imported by pyremoteplay, and this app switches that off) |
+
+### Protocol constants (not secret)
+
+| What | Where | Also in |
+|---|---|---|
+| Remote Play version strings, `RP-*` header names, user agent, ports, discovery messages | pyremoteplay `const.py`, `session.py`, `ddp.py` | chiaki-ng |
+| Stream message schema (`takion.proto`, compiled into `takion_pb2.py`) and packet formats | pyremoteplay | chiaki-ng `lib/protobuf/takion.proto` |
+| PSN sign-in URLs, scopes and login-URL parameters | **this repo**, `ps5remote/psn.py` | chiaki-ng, pyremoteplay |
+| Control-message types, fixed MTU / RTT, network-test version, display-message handling | **this repo**, `ps5remote/rpsession.py` | chiaki-ng |
+| Button IDs, event format, analog-trigger values, send intervals | **this repo**, `ps5remote/gamepad.py` | chiaki-ng, pyremoteplay |
+| Remote Play error codes | **this repo**, `ps5remote/ps5.py` | chiaki-ng, pyremoteplay |
+
+**In a PyInstaller build:** every .exe bundles pyremoteplay, so it contains all the key tables
+and pyremoteplay's copy of the sign-in credentials, plus pyps4-2ndscreen's `PUBLIC_KEY` and
+`RANDOM_SEED`. A personal build also contains the builder's own `psn_client.json`.
 
 ## Licences
 
@@ -77,12 +129,12 @@ This applies to anyone who distributes this project.
   it. GPL-3.0 §13 explicitly allows combining GPL-3.0 code with AGPL-3.0 code, so the combined
   work is distributed under AGPL-3.0 with pyremoteplay keeping its own GPL-3.0 terms.
 - **pyps4-2ndscreen (LGPL):** fine, as long as its source is available and it can be replaced.
-- **Not a licence issue, but a risk:** the PSN client ID/secret and the Remote Play protocol are
-  Sony's. Publishing the client values, or an app containing them, may conflict with Sony's
-  terms. This repository doesn't contain them, and this app never uses pyremoteplay's built-in
-  copy. But pyremoteplay's source (`pyremoteplay/oauth.py`) does contain them, and every
-  PyInstaller build bundles pyremoteplay, so **distributing any .exe also distributes those
-  values**. The public build (`build.bat public`) doesn't add the builder's own
+- **Not a licence issue, but a risk:** the Remote Play protocol, its key tables and the PSN
+  client ID/secret are Sony's. Publishing them, or an app containing them, may conflict with
+  Sony's terms. This repository doesn't contain them (see
+  [Sony-derived material](#sony-derived-material)), but every PyInstaller build bundles
+  pyremoteplay, so **distributing any .exe also distributes the key tables and pyremoteplay's
+  copy of the client values**. The public build (`build.bat public`) doesn't add the builder's own
   `psn_client.json`; a personal build (`KeyboardDS5-personal.exe`) does, and must never be
   distributed.
 - With any .exe release, include `LICENSE`, this file, and the third-party licence notices of the

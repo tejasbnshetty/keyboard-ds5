@@ -141,6 +141,12 @@ footer { padding: 6px 16px 10px; }
 .modal-box { background: var(--panel); border-radius: 12px; padding: 18px; max-width: 380px; width: 100%; }
 .modal-box input, .modal-box select { width: 100%; }
 .modal-box select { margin-top: 10px; }
+.about-link { display: inline; padding: 0 0 0 10px; font-size: 13px; }
+.about-box { max-width: 480px; max-height: calc(100vh - 32px); overflow: auto; font-size: 14px; }
+.about-box h2 { margin: 0 0 2px; font-size: 18px; }
+.about-version { color: var(--muted); margin-top: 0; }
+.about-links { padding-left: 18px; }
+.about-links a { color: var(--accent); }
 .modal-error { color: #ff9a9d; font-size: 13px; margin: 8px 0 0; }
 #capture .modal-box { text-align: center; }
 #capture-text { font-size: 18px; }
@@ -172,6 +178,7 @@ body.wizard-on #setup-warning, body.wizard-on #busy { display: none; }
 .paste { margin-top: 8px; }
 .paste input, #wiz-ip { flex: 1; min-width: 0; }
 .link-btn { background: none; border: 0; color: var(--accent); cursor: pointer; padding: 6px 0; font: inherit; display: block; }
+.link-btn[hidden], #wiz-signin-block[hidden] { display: none; }
 code { font-size: 12px; word-break: break-all; color: var(--text); }
 .wizard input[type="text"] { user-select: text; -webkit-user-select: text; }
 #wiz-pin { width: 140px; font-size: 20px; letter-spacing: 3px; font-family: Consolas, monospace; }

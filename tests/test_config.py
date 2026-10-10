@@ -80,6 +80,53 @@ def test_migration_found_next_to_exe(monkeypatch, tmp_path):
     assert config.migration_source() is None  # profiles.json now exists
 
 
+def _frozen_exe(monkeypatch, tmp_path, exe_dir_name="dist"):
+    exe_dir = tmp_path / exe_dir_name
+    exe_dir.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr(config, "FROZEN", True)
+    monkeypatch.setattr(config, "ROOT", exe_dir)
+    config.set_data_dir(tmp_path / "appdata" / "KeyboardDS5" / "data")
+    monkeypatch.setattr(config, "CUSTOM_DATA_DIR", False)
+    return exe_dir
+
+
+def _old_data(folder):
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / "profiles.json").write_text("{}")
+    (folder / "config.json").write_text('{"ps5_host": "1.2.3.4"}')
+    return folder
+
+
+def test_pre_rename_appdata_folder_is_offered_first(monkeypatch, tmp_path):
+    exe_dir = _frozen_exe(monkeypatch, tmp_path)
+    _old_data(exe_dir / "data")
+    legacy = _old_data(config.LEGACY_USER_DIR / "data")
+    assert config.migration_source() == legacy
+    assert config.migrate_from(legacy) == ["config.json", "profiles.json"]
+    assert (legacy / "profiles.json").exists()   # copied, never moved
+    assert config.migration_source() is None
+
+
+def test_nothing_to_offer_without_old_data(monkeypatch, tmp_path):
+    _frozen_exe(monkeypatch, tmp_path)
+    assert config.migration_source() is None
+
+
+def test_new_appdata_folder_name(monkeypatch):
+    assert config.LEGACY_USER_DIR.name == "legacy-appdata"   # patched in conftest
+    import importlib, sys as _sys
+    monkeypatch.setattr(_sys, "frozen", True, raising=False)
+    monkeypatch.setattr(_sys, "_MEIPASS", "C:/bundle", raising=False)
+    fresh = importlib.reload(config)
+    try:
+        assert fresh.USER_DIR.name == "KeyboardDS5"
+        assert fresh.LEGACY_USER_DIR.name == "PS5Remote"
+        assert fresh.SOURCE_DATA_DIR is None   # no psn_client.json lookup next to the .exe
+    finally:
+        monkeypatch.delattr(_sys, "frozen")
+        importlib.reload(config)
+
+
 def test_declined_migration_is_not_offered_again(monkeypatch, tmp_path):
     exe_dir = tmp_path / "dist"
     (exe_dir / "data").mkdir(parents=True)
