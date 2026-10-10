@@ -226,6 +226,15 @@ def test_download_failure_suggests_the_file_option():
         support.download(offline)
 
 
+@pytest.mark.parametrize("url", ["http://files.pythonhosted.org/packages/x.whl",
+                                 "https://evil.example/packages/x.whl",
+                                 "file:///C:/Windows/win.ini",
+                                 "https://files.pythonhosted.org.evil.example/packages/x.whl"])
+def test_fetch_refuses_anything_but_pypi_https(url):
+    with pytest.raises(support.SupportError, match="PyPI over https"):
+        support._fetch(url)
+
+
 def test_real_urls_are_pypi_https():
     for source in support.SOURCES:
         assert source.url.startswith("https://files.pythonhosted.org/packages/")

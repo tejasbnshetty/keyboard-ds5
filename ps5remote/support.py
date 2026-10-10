@@ -283,7 +283,12 @@ def tables_from_file(path: str | Path) -> tuple[dict[str, bytes], str]:
 
 # Download ----------------------------------------------------------------------------------
 
+ALLOWED_DOWNLOAD_PREFIX = "https://files.pythonhosted.org/packages/"
+
+
 def _fetch(url: str) -> bytes:
+    if not url.startswith(ALLOWED_DOWNLOAD_PREFIX):
+        raise SupportError("Refusing to download from anywhere other than PyPI over https.")
     try:
         import certifi  # pylint: disable=import-outside-toplevel
         context = ssl.create_default_context(cafile=certifi.where())

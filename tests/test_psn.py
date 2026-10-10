@@ -149,8 +149,21 @@ def test_extract_code_rejects(text):
 
 def test_is_redirect():
     assert psn.is_redirect(psn.REDIRECT_URL + "?code=x")
+    assert psn.is_redirect(psn.REDIRECT_URL)
     assert not psn.is_redirect("https://example.com/?u=" + psn.REDIRECT_URL)
     assert not psn.is_redirect(None)
+
+
+@pytest.mark.parametrize("url", [
+    psn.REDIRECT_URL + "EVIL?code=x",                                   # longer path
+    psn.REDIRECT_URL + "/extra?code=x",
+    psn.REDIRECT_URL.replace("https://", "http://") + "?code=x",        # not https
+    psn.REDIRECT_URL.replace("playstation.net", "playstation.net.evil.example") + "?code=x",
+    "https://remoteplay.dl.playstation.net:8443/remoteplay/redirect?code=x",
+    "https://user@evil.example/remoteplay/redirect?code=x",
+])
+def test_is_redirect_is_exact(url):
+    assert not psn.is_redirect(url)
 
 
 def test_make_profile_keeps_pairings_only_for_same_account():

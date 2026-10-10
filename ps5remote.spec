@@ -43,7 +43,10 @@ datas = [
     ("ps5remote/app/web", "web"),
     ("app_maps.json", "."),
 ]
-excludes = ["tkinter", "av", "PySide6", "pygame", "sounddevice", "OpenGL", "curses"]
+excludes = ["tkinter", "av", "PySide6", "pygame", "sounddevice", "OpenGL", "curses",
+            # Build tooling only (cffi's build-time helpers mention it); never used at runtime,
+            # and old setuptools has known advisories, so keep it out of the app.
+            "setuptools", "pkg_resources", "_distutils_hack"]
 runtime_hooks = []
 if personal:
     datas += [

@@ -92,7 +92,12 @@ def login_url() -> str:
 
 
 def is_redirect(url: str | None) -> bool:
-    return bool(url) and url.startswith(REDIRECT_URL)
+    """Exactly Sony's redirect page (https, host and path), not just an address starting with it."""
+    if not url:
+        return False
+    parts, expected = urlparse(url), urlparse(REDIRECT_URL)
+    return (parts.scheme == "https" and parts.hostname == expected.hostname
+            and parts.port in (None, 443) and parts.path == expected.path)
 
 
 def extract_code(text: str) -> str:

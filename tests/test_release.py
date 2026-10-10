@@ -73,6 +73,18 @@ def test_build_bat_refuses_while_the_app_is_running():
     assert (ROOT / "build.bat").read_bytes().count(b"\r\n") == len(lines)   # CRLF throughout
 
 
+def test_workflow_actions_are_pinned_to_commits(workflow):
+    import re
+    text, _ = workflow
+    uses = re.findall(r"uses:\s*(\S+)", text)
+    assert uses and all(re.fullmatch(r"[\w.-]+/[\w.-]+@[0-9a-f]{40}", u) for u in uses), uses
+
+
+def test_setuptools_is_kept_out_of_the_app():
+    spec = (ROOT / "ps5remote.spec").read_text(encoding="utf-8")
+    assert '"setuptools", "pkg_resources", "_distutils_hack"' in spec
+
+
 def test_spec_refuses_personal_builds_in_ci():
     spec = (ROOT / "ps5remote.spec").read_text(encoding="utf-8")
     assert 'personal and (os.environ.get("CI") or os.environ.get("GITHUB_ACTIONS"))' in spec
