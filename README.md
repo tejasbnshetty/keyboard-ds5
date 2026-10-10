@@ -16,9 +16,11 @@ input only. No video is streamed or decoded, so it's light and connects in about
 > **Disclaimer:** This is an unofficial project. It is not affiliated with, endorsed by, or
 > supported by Sony Interactive Entertainment. "PlayStation", "PS5", "PS4" and "Remote Play"
 > are trademarks of Sony Interactive Entertainment Inc. It uses an unofficial implementation of
-> the Remote Play protocol, which may stop working after a firmware update and may be against
-> Sony's terms of service. Use it at your own risk. No Sony key tables or PSN sign-in values
-> are included in this repository or the public build (see
+> the Remote Play protocol, which may stop working after a firmware update. Using it may breach
+> the PlayStation Network Terms of Service (for example their rules on reverse engineering,
+> circumventing authentication and automated access), and Sony may restrict or suspend accounts
+> or consoles that breach them. Use it at your own risk. No Sony key tables or PSN sign-in
+> values are included in this repository or the public build (see
 > [PSN sign-in values](#psn-sign-in-values)).
 
 ## Compatibility
@@ -32,6 +34,34 @@ input only. No video is streamed or decoded, so it's light and connects in about
 
 Only one Remote Play session can be open at a time, so close the official PS Remote Play app
 while using this one.
+
+## Download
+
+Ready-made Windows builds are on the
+[Releases page](https://github.com/tejasbnshetty/keyboard-ds5/releases). Current releases are
+**pre-releases**: tested on few setups, so expect rough edges. Each one is the
+[public build](#public-build-key-free), made by this repository's
+[release workflow](#release-workflow) from a tagged commit.
+
+1. **Download** `KeyboardDS5-<version>-windows-x64.zip`. Check that its SHA-256 matches the one
+   on the release page (`(Get-FileHash .\KeyboardDS5-<version>-windows-x64.zip).Hash.ToLower()`
+   in PowerShell). With the GitHub CLI you can also confirm that it was built here:
+   `gh attestation verify KeyboardDS5-<version>-windows-x64.zip --repo tejasbnshetty/keyboard-ds5`.
+2. **Unzip** anywhere and run `KeyboardDS5\KeyboardDS5.exe`. Keep the `_internal` folder next
+   to it.
+3. **"Windows protected your PC":** the app isn't code-signed, so SmartScreen warns the first
+   time. Choose **More info → Run anyway**, but only for a zip from the Releases page whose
+   SHA-256 matches.
+4. **Remote Play support files:** the first setup step fetches five small key tables from
+   pyremoteplay on PyPI, or reads them from a file you choose. They are checked against pinned
+   hashes and never run (see [Remote Play support files](#remote-play-support-files-public-build)).
+   Ticking **Also enable Sign in with PlayStation** there is optional; without it you type your
+   [account ID](#finding-your-account-id).
+5. **Firewall:** if Windows asks, allow **Private networks** only, not Public (see
+   [Firewall](#firewall)).
+
+The app doesn't update itself, so check the Releases page for new versions, especially after a
+PS5 system update. To run from source instead, follow the Quick start.
 
 ## Quick start
 
@@ -63,7 +93,8 @@ while using this one.
 
    On first run, a setup wizard walks you through finding the console, signing in and pairing.
 
-Prefer a standalone program? See [Building the .exe](#building-the-exe).
+Prefer a standalone program? [Download](#download) one, or see
+[Building the .exe](#building-the-exe).
 
 ## Setup wizard
 
@@ -327,8 +358,9 @@ account-ID entry instead. `psn_client.json` is gitignored. Never commit or share
 ## Building the .exe
 
 You can package the app as a program that runs without Python or a terminal: handy for a
-desktop shortcut, or for running it on another PC. **No prebuilt downloads are published yet**,
-so build it yourself from the source.
+desktop shortcut, or for running it on another PC. Prebuilt public builds are on the
+[Releases page](https://github.com/tejasbnshetty/keyboard-ds5/releases) (see [Download](#download));
+building it yourself gives you the same program from source.
 
 ### Public build (key-free)
 
@@ -403,16 +435,19 @@ gitignored). Personal builds are refused in CI. Neither build contains pairing d
 3. builds, packages and runs the key-free check;
 4. attests where the zip came from.
 
-Pushing a tag `vX.Y.Z` that matches the app version creates a **draft** release for review; it
-is published only by pressing Publish on GitHub. A manual run builds the zip as a workflow
-artifact without creating a release.
+Pushing a tag `vX.Y.Z` that matches the app version creates a **draft** release, marked as a
+pre-release, for review; it is published only by pressing Publish on GitHub. The release notes
+come from `packaging/RELEASE_NOTES.md`, filled in by `tools/release_notes.py`. A manual run
+(**Actions → Release (public, key-free) → Run workflow**) builds the zip and uploads it as a workflow artifact
+without creating a release.
 
 ### Good to know
 
 - The .exe accepts the same options as `.\ps5.bat app` (e.g. `KeyboardDS5.exe --setup`), and
   writes its logs to `%APPDATA%\KeyboardDS5\logs`.
 - It isn't code-signed, so Windows SmartScreen may say "Windows protected your PC" the first
-  time. Choose **More info → Run anyway**, but only for a build you made yourself or trust.
+  time. Choose **More info → Run anyway**, but only for a build you made yourself or downloaded
+  from the Releases page with a matching SHA-256.
 - The PC running it needs Microsoft Edge WebView2 (built into Windows 11 and current Windows
   10).
 - Rebuild after updating the source. The app doesn't update itself.

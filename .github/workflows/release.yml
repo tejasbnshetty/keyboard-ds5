@@ -4,9 +4,9 @@
 # refuses a personal build when CI is set, and the steps below fail on any personal-build input
 # or output.
 #
-# Push a tag vX.Y.Z (matching ps5remote.__version__) to create a DRAFT release for review; it is
-# only published when you press Publish on GitHub. A manual run builds and uploads the zip as a
-# workflow artifact without creating a release.
+# Push a tag vX.Y.Z (matching ps5remote.__version__) to create a DRAFT pre-release for review; it
+# is only published when you press Publish on GitHub. A manual run (Actions → Run workflow) builds
+# and uploads the zip as a workflow artifact without creating a release.
 name: Release (public, key-free)
 
 on:
@@ -87,6 +87,8 @@ jobs:
           name: KeyboardDS5-public
           path: release/
 
+      # Every release is a draft marked as a pre-release for now (drop --prerelease and the title
+      # suffix, here and in packaging/RELEASE_NOTES.md, for the first stable release).
       - name: Create draft release (tags only)
         if: startsWith(github.ref, 'refs/tags/')
         shell: pwsh
@@ -95,4 +97,4 @@ jobs:
         run: |
           $zip = Get-ChildItem release/KeyboardDS5-*.zip
           gh release create "${{ github.ref_name }}" $zip.FullName "$($zip.FullName).sha256" release/check_keyfree.txt `
-            --draft --title "Keyboard DS5 ${{ github.ref_name }}" --notes-file release/RELEASE_NOTES.md
+            --draft --prerelease --title "Keyboard DS5 ${{ github.ref_name }} (pre-release)" --notes-file release/RELEASE_NOTES.md

@@ -60,6 +60,23 @@ def test_workflow_only_releases_from_tags(workflow):
     assert release["if"] == "startsWith(github.ref, 'refs/tags/')"
 
 
+def test_tag_release_is_a_draft_pre_release(workflow):
+    _, data = workflow
+    release = next(s for s in data["jobs"]["build"]["steps"] if s.get("name") == "Create draft release (tags only)")
+    assert "--draft" in release["run"] and "--prerelease" in release["run"]
+    assert "(pre-release)" in release["run"]
+
+
+def test_manual_run_uploads_an_artifact_without_releasing(workflow):
+    _, data = workflow
+    steps = data["jobs"]["build"]["steps"]
+    upload = next(s for s in steps if s.get("name") == "Upload artifact (manual runs)")
+    assert upload["if"] == "${{ !startsWith(github.ref, 'refs/tags/') }}"
+    assert upload["uses"].startswith("actions/upload-artifact@") and upload["with"]["path"] == "release/"
+    # the only step that talks to GitHub Releases is tag-only
+    assert [s["name"] for s in steps if "gh release" in s.get("run", "")] == ["Create draft release (tags only)"]
+
+
 def test_build_bat_refuses_while_the_app_is_running():
     text = (ROOT / "build.bat").read_text(encoding="utf-8")
     lines = text.splitlines()
@@ -139,6 +156,24 @@ def test_release_notes_render(tmp_path):
     assert f"Keyboard DS5 {version}" in text and "ab" * 32 in text
     assert "gh attestation verify" in text and "owner/repo" in text
     assert "RESULT: PASS" in text and "Not affiliated with" in text and "{" not in text.split("```")[0]
+    assert "Pre-release" in text and "Terms of Service" in text
+    assert "More info → Run\n   anyway" in text and "Private networks" in text
+    assert "Sign in with PlayStation" in text and "no PSN sign-in in this build" not in text
+
+
+def test_release_notes_write_utf8_to_a_cp1252_console(tmp_path, monkeypatch):
+    import io
+    import sys
+    notes = load_tool("release_notes")
+    zip_name = f"KeyboardDS5-{ps5remote.__version__}-windows-x64.zip"
+    (tmp_path / zip_name).write_bytes(b"x")
+    (tmp_path / (zip_name + ".sha256")).write_text(f"{'ab' * 32}  {zip_name}\n")
+    (tmp_path / "check_keyfree.txt").write_text("RESULT: PASS\n")
+    raw = io.BytesIO()
+    monkeypatch.setattr(sys, "stdout", io.TextIOWrapper(raw, encoding="cp1252"))
+    assert notes.main([str(tmp_path), "--repo", "owner/repo"]) == 0
+    sys.stdout.flush()
+    assert "More info → Run" in raw.getvalue().decode("utf-8")
 
 
 def test_release_notes_refuse_a_failed_check(tmp_path):

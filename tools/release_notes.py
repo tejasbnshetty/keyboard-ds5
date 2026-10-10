@@ -36,7 +36,9 @@ def main(argv: list[str]) -> int:
     parser.add_argument("out_dir", type=Path)
     parser.add_argument("--repo", default="tejasbnshetty/keyboard-ds5")
     args = parser.parse_args(argv)
-    sys.stdout.write(render(args.out_dir, args.repo))
+    text = render(args.out_dir, args.repo)
+    sys.stdout.reconfigure(encoding="utf-8")   # the notes have arrows; Windows redirects default to cp1252
+    sys.stdout.write(text)
     return 0
 
 
