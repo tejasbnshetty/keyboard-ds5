@@ -112,6 +112,7 @@ class SetupWizard:
             "setup_support_file": self._support_file,
             "setup_support_remove": self._support_remove,
             "setup_sign_in_remove": self._sign_in_remove,
+            "setup_sign_in_enable": self._sign_in_enable,
             "setup_restart": self._restart,
         }
         handler = handlers.get(kind)
@@ -282,6 +283,39 @@ class SetupWizard:
             return
         support.remove(support.default_dir())
         await self.server.event("info", "Support files removed. Restart the app to apply this.")
+
+    async def _sign_in_enable(self, data: dict) -> None:
+        """From the Account step: add only the sign-in values (the key tables are left as they
+        are), from a fresh PyPI download or a chosen wheel / sdist / oauth.py. They work at once:
+        no restart."""
+        if not keyfree.ACTIVE:
+            return
+        if data.get("source") == "file":
+            if not self.server.pick_file:
+                self.error = ("Choosing a file needs the app window. In browser mode, use Download "
+                              "from PyPI.")
+                return
+            path = await asyncio.to_thread(self.server.pick_file)
+            if not path:
+                return   # cancelled
+            get, label = (lambda: support.extract_file(path)), "Checking the file..."
+        else:
+            get = support.download_all
+            label = f"Downloading pyremoteplay {support.PYREMOTEPLAY_VERSION} from PyPI..."
+
+        async def go():
+            found = await asyncio.to_thread(get)
+            if not found.client:
+                raise support.SupportError(
+                    found.client_problem or "That file doesn't contain the sign-in values.")
+            await asyncio.to_thread(support.save_sign_in, support.default_dir(), found.client,
+                                    found.description)
+            self.sign_in_failed = False
+            await self.server.event("info", "Sign in with PlayStation is enabled.")
+        await self._busy(label, go())
+        if self.error:
+            self.error = f"Sign-in wasn't enabled: {self.error} You can still enter your account ID."
+            await self.server.event("error", self.error)
 
     async def _sign_in_remove(self, _data: dict) -> None:
         if not keyfree.ACTIVE:

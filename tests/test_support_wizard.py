@@ -161,6 +161,76 @@ def test_rejected_sign_in_points_to_manual_entry(server, keyfree_build, download
     assert state["signed_in"] and not state["error"]
 
 
+# "Enable Sign in with PlayStation" on the Account step -----------------------------------
+
+@pytest.fixture
+def tables_installed(keyfree_build, monkeypatch):
+    """The usual state on the Account step: key tables installed and loaded, no sign-in."""
+    support.save(support.default_dir(), tables(), "PyPI, earlier")
+    monkeypatch.setattr(keyfree, "TABLES_OK", True)
+
+
+def test_enable_sign_in_from_the_account_step(server, tables_installed, download_with_sign_in):
+    w = SetupWizard(server, None)
+    before = w.public_state()
+    assert before["psn_configured"] is False and before["support"]["restart_needed"] is False
+    state = step(w, "setup_sign_in_enable", source="download")
+    assert not state["error"] and state["psn_configured"] is True
+    assert state["support"]["sign_in"]["state"] == "ready"
+    assert state["support"]["restart_needed"] is False          # sign-in works at once
+    assert state["support"]["source"] == "PyPI, earlier"         # key tables left as they were
+    assert not any("Restart" in m for _, m in server.events)
+
+
+def test_enable_sign_in_from_a_chosen_oauth_file(server, tables_installed, tmp_path):
+    import pyremoteplay.oauth as installed_oauth
+    path = tmp_path / "oauth.py"
+    path.write_bytes(Path(installed_oauth.__file__).read_bytes())
+    server.pick_file = lambda: str(path)
+    state = step(SetupWizard(server, None), "setup_sign_in_enable", source="file")
+    assert not state["error"] and state["psn_configured"] is True
+
+
+def test_enable_sign_in_refuses_keys_py(server, tables_installed):
+    server.pick_file = lambda: str(KEYS_PY)
+    state = step(SetupWizard(server, None), "setup_sign_in_enable", source="file")
+    assert "Sign-in wasn't enabled" in state["error"] and "account ID" in state["error"]
+    assert state["psn_configured"] is False and state["support"]["state"] == "ready"
+
+
+def test_enable_sign_in_download_failure(server, tables_installed, monkeypatch):
+    def offline():
+        raise support.SupportError("Couldn't download pyremoteplay from PyPI (wheel: offline).")
+    monkeypatch.setattr(support, "download_all", offline)
+    state = step(SetupWizard(server, None), "setup_sign_in_enable", source="download")
+    assert "Couldn't download" in state["error"] and state["psn_configured"] is False
+    assert support.load_tables(support.default_dir()) == tables()
+
+
+def test_enable_sign_in_file_cancelled_or_browser_mode(server, tables_installed):
+    assert "browser mode" in step(SetupWizard(server, None), "setup_sign_in_enable", source="file")["error"]
+    server.pick_file = lambda: None
+    state = step(SetupWizard(server, None), "setup_sign_in_enable", source="file")
+    assert not state["error"] and state["psn_configured"] is False
+
+
+def test_enable_sign_in_is_public_build_only(server, download_with_sign_in):
+    state = step(SetupWizard(server, None), "setup_sign_in_enable", source="download")
+    assert state["psn_configured"] is False and not state["error"]
+
+
+def test_wizard_never_sends_people_to_settings():
+    """The Account step offers sign-in itself; the wizard's own text never says 'go to Settings'."""
+    root = Path(__file__).resolve().parent.parent / "ps5remote" / "app" / "web"
+    js = (root / "app.js").read_text(encoding="utf-8")
+    render = js[js.index("function renderWizard()"):js.index("function autoDiscover()")]
+    assert "Settings" not in render
+    html = (root / "index.html").read_text(encoding="utf-8")
+    account = html[html.index('data-step="3">'):html.index('<div class="wiz-step" data-step="4">')]
+    assert "Settings →" not in account.replace("Settings → Network", "").replace("Settings → System", "")
+    assert 'id="wiz-enable-signin-open"' in account and "as chiaki-ng does" in account
+
+
 def test_choose_file_needs_the_window(server, keyfree_build):
     state = step(SetupWizard(server, None), "setup_support_file")
     assert "browser mode" in state["error"]

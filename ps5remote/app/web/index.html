@@ -118,6 +118,16 @@
             placeholder="Name to show (optional)"></div>
         <div class="row"><button id="wiz-manual-btn" class="action primary">Use this account ID</button></div>
       </div>
+      <div id="wiz-enable-signin" class="enable-signin" hidden>
+        <button id="wiz-enable-signin-open" class="link-btn" type="button">Enable Sign in with PlayStation</button>
+        <p class="hint-left optin-note">Uses the PS Remote Play app's sign-in identity, as chiaki-ng does. You can always enter your account ID instead.</p>
+        <div id="wiz-enable-signin-panel" class="row" hidden>
+          <button id="wiz-enable-signin-download" class="action">Download from PyPI</button>
+          <button id="wiz-enable-signin-file" class="action">Choose file…</button>
+          <span class="hint-inline">The pyremoteplay <span class="support-version"></span> wheel, source archive or its <code>oauth.py</code>,
+            checked against pinned checksums.</span>
+        </div>
+      </div>
       <div id="wiz-paste" class="paste" hidden>
         <p>After signing in, the browser lands on a page starting with
           <code>https://remoteplay.dl.playstation.net/remoteplay/redirect?code=</code>.

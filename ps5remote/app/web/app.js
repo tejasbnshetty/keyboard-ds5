@@ -891,9 +891,19 @@ function renderWizard() {
   $("#wiz-signin-browser").hidden = !s.embedded_login;
   $("#wiz-signin-browser").disabled = !!s.busy || s.login_window_open;
   const keyfree = !!(s.support && s.support.needed);
-  $("#wiz-psn-missing").textContent = keyfree
-    ? "Sign in with PlayStation isn't enabled, so enter your account ID below. (To enable it, tick the box in Settings → Remote Play support files and download again.)"
-    : "Sign-in with PlayStation isn't available in this copy of the app, so enter your account ID below.";
+  $("#wiz-psn-missing").textContent =
+    "Sign-in with PlayStation isn't available in this copy of the app, so enter your account ID below.";
+  if (keyfree) $("#wiz-psn-missing").hidden = true;   // the option below explains it instead
+  // Public build without sign-in values: a secondary option to add them right here (no restart).
+  $("#wiz-enable-signin").hidden = !(keyfree && !s.psn_configured);
+  for (const id of ["#wiz-enable-signin-download", "#wiz-enable-signin-file"]) $(id).disabled = !!s.busy;
+  $("#wiz-enable-signin-file").hidden = !(s.support && s.support.can_pick_file);
+  if (s.psn_configured && wiz.signInWasOff && keyfree) {
+    // Just enabled: switch to Sign in with PlayStation; manual entry stays one click away.
+    $("#wiz-manual").hidden = true;
+    $("#wiz-enable-signin-panel").hidden = true;
+  }
+  wiz.signInWasOff = !s.psn_configured;
   if (s.sign_in_failed && !wiz.signInFailShown) {
     wiz.signInFailShown = true;
     $("#wiz-manual").hidden = false;
@@ -1004,6 +1014,9 @@ $("#wiz-use-ip").addEventListener("click", () => wizSend({ type: "setup_use_cons
 $("#wiz-ip").addEventListener("keydown", (e) => { if (e.key === "Enter") $("#wiz-use-ip").click(); });
 $("#wiz-signin").addEventListener("click", () => wizSend({ type: "setup_psn_open" }));
 $("#wiz-signin-browser").addEventListener("click", () => wizSend({ type: "setup_psn_open", browser: true }));
+$("#wiz-enable-signin-open").addEventListener("click", () => { $("#wiz-enable-signin-panel").hidden = false; });
+$("#wiz-enable-signin-download").addEventListener("click", () => wizSend({ type: "setup_sign_in_enable", source: "download" }));
+$("#wiz-enable-signin-file").addEventListener("click", () => wizSend({ type: "setup_sign_in_enable", source: "file" }));
 $("#wiz-keep-btn").addEventListener("click", () => wizSend({ type: "setup_psn_keep" }));
 $("#wiz-show-paste").addEventListener("click", () => { $("#wiz-paste").hidden = false; $("#wiz-paste-url").focus(); });
 $("#wiz-show-manual").addEventListener("click", () => { $("#wiz-manual").hidden = false; $("#wiz-account-id").focus(); });
