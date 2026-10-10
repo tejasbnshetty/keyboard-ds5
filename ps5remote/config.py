@@ -13,8 +13,13 @@ import os
 import shutil
 import sys
 from pathlib import Path
+from typing import TYPE_CHECKING
 
-from pyremoteplay.profile import Profiles
+if TYPE_CHECKING:
+    from pyremoteplay.profile import Profiles
+
+# pyremoteplay is imported lazily (in profiles()): the key-free build must install its import
+# finder (keyfree.install) after reading the data folder here, before pyremoteplay loads.
 
 FROZEN = bool(getattr(sys, "frozen", False))
 APPDATA = Path(os.environ.get("APPDATA", Path.home()))
@@ -97,6 +102,7 @@ def remove_keys(*keys: str) -> None:
 
 def profiles() -> Profiles:
     """pyremoteplay profiles from our data folder, not the library's default."""
+    from pyremoteplay.profile import Profiles  # pylint: disable=import-outside-toplevel
     _ensure_dir()
     Profiles.set_default_path(str(PROFILES_FILE))
     return Profiles.load(str(PROFILES_FILE))

@@ -19,3 +19,6 @@ dist/
 PS5Remote.exe
 KeyboardDS5.exe
 *-personal.exe
+
+# Temporary file from tools/check_keyfree.py
+tools/.check_keyfree.pyz

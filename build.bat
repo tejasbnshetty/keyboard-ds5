@@ -1,9 +1,10 @@
 @echo off
 rem SPDX-License-Identifier: AGPL-3.0-only
 rem Build the app into dist\.
-rem   build.bat          personal build: bundles data\psn_client.json (Sony sign-in values)
-rem   build.bat public   your psn_client.json is not bundled (users supply their own)
-rem Either way the bundled pyremoteplay library contains its own (unused) copy of the values.
+rem   build.bat          personal build if data\psn_client.json exists: the full libraries plus
+rem                      your sign-in values. For your own PC only; never distribute it.
+rem   build.bat public   key-free public build: no Sony key tables or sign-in values inside
+rem                      (the app gets the tables at first run). Checked by tools\check_keyfree.py.
 cd /d "%~dp0"
 if not exist ".venv\Scripts\pyinstaller.exe" (
     echo Run setup.bat first.
@@ -15,7 +16,7 @@ if not exist build mkdir build
 set PS5REMOTE_PERSONAL=0
 if /i "%~1"=="public" goto build
 if not exist "data\psn_client.json" (
-    echo No data\psn_client.json found - making a PUBLIC build without your sign-in values.
+    echo No data\psn_client.json found - making the key-free PUBLIC build.
     goto build
 )
 set PS5REMOTE_PERSONAL=1
@@ -24,8 +25,8 @@ echo.
 echo ************************************************************************
 echo *  PERSONAL BUILD - DO NOT DISTRIBUTE                                  *
 echo *  dist\KeyboardDS5-personal.exe will contain the Sony sign-in values  *
-echo *  from data\psn_client.json. Keep it on your own PC. Never upload it,  *
-echo *  share it, or commit it.                                              *
+echo *  from data\psn_client.json and the Remote Play key tables. Keep it   *
+echo *  on your own PC. Never upload it, share it, or commit it.            *
 echo ************************************************************************
 echo.
 
@@ -35,9 +36,13 @@ if exist build\PERSONAL_BUILD.txt del build\PERSONAL_BUILD.txt
 echo.
 if "%PS5REMOTE_PERSONAL%"=="1" (
     echo Built dist\KeyboardDS5-personal.exe   ^<-- PERSONAL, DO NOT DISTRIBUTE
-) else (
-    echo Built dist\KeyboardDS5.exe   ^(public: your psn_client.json is not inside^)
+    goto done
 )
+echo Checking that the public build contains no Sony key material...
+".venv\Scripts\python.exe" tools\check_keyfree.py dist\KeyboardDS5.exe || goto :error
+echo Built dist\KeyboardDS5.exe   ^(public, key-free^)
+
+:done
 echo The app keeps its data in %%APPDATA%%\KeyboardDS5. On first run it asks before copying
 echo older data (%%APPDATA%%\PS5Remote, or a data folder next to the .exe or one folder up).
 exit /b 0
