@@ -64,7 +64,7 @@ def test_build_bat_refuses_while_the_app_is_running():
     text = (ROOT / "build.bat").read_text(encoding="utf-8")
     lines = text.splitlines()
     check = [i for i, line in enumerate(lines) if "tasklist" in line and "goto :running" in line]
-    build = next(i for i, line in enumerate(lines) if "pyinstaller.exe" in line)
+    build = next(i for i, line in enumerate(lines) if "pyinstaller.exe" in line and "--noconfirm" in line)
     assert len(check) == 2 and all(i < build for i in check)   # both exe names, before building
     assert ":running" in lines and ":error" in lines
     assert lines.index(":running") < lines.index(":error")
