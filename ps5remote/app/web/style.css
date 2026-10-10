@@ -147,6 +147,8 @@ footer { padding: 6px 16px 10px; }
 .about-version { color: var(--muted); margin-top: 0; }
 .about-links { padding-left: 18px; }
 .about-links a { color: var(--accent); }
+.optin { display: flex; align-items: center; gap: 6px; margin: 10px 0 2px; }
+.optin-note { margin: 0 0 10px 24px; }
 .modal-error { color: #ff9a9d; font-size: 13px; margin: 8px 0 0; }
 #capture .modal-box { text-align: center; }
 #capture-text { font-size: 18px; }

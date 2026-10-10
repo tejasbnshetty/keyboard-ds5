@@ -12,6 +12,7 @@ import sys
 import threading
 import time
 import webbrowser
+from urllib.parse import urlsplit
 
 import ps5remote
 
@@ -69,12 +70,24 @@ def setup_logging(debug: bool, console: bool) -> Redact:
     return redact
 
 
+LOGIN_TITLE = "Sign in to PlayStation Network"
+
+
+def login_window_title(url: str | None) -> str:
+    """The sign-in window's title shows the address of the page in it (there's no address bar),
+    so it's visible that the page is Sony's own."""
+    parts = urlsplit(url or "")
+    if not parts.hostname:
+        return f"{LOGIN_TITLE} - loading..."
+    secure = "" if parts.scheme == "https" else " (NOT a secure connection)"
+    return f"{LOGIN_TITLE} - {parts.hostname}{secure}"
+
+
 def make_login_opener(webview):
     """Opens Sony's sign-in page in an app window and catches the redirect."""
 
     def open_login(url: str, on_result) -> None:
-        window = webview.create_window("Sign in to PlayStation Network", url,
-                                       width=520, height=760)
+        window = webview.create_window(login_window_title(None), url, width=520, height=760)
         done = threading.Event()
 
         def finish(value):
@@ -83,11 +96,19 @@ def make_login_opener(webview):
                 on_result(value)
 
         def watch():
+            shown = None
             while not done.is_set():
                 try:
                     current = window.get_current_url()
                 except Exception:  # pylint: disable=broad-except
                     current = None
+                title = login_window_title(current)
+                if current and title != shown:
+                    shown = title
+                    try:
+                        window.set_title(title)
+                    except Exception:  # pylint: disable=broad-except
+                        pass
                 if psn.is_redirect(current):
                     finish(current)
                     try:

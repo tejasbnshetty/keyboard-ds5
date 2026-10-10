@@ -55,7 +55,8 @@ def test_public_build_starts_without_them(server, keyfree_build):
 
 def test_download_installs_and_asks_for_restart(server, keyfree_build, monkeypatch):
     calls = []
-    monkeypatch.setattr(support, "download", lambda: calls.append(1) or (tables(), "PyPI, test"))
+    monkeypatch.setattr(support, "download_all",
+                        lambda: calls.append(1) or support.Extracted(tables(), None, "PyPI, test"))
     state = step(SetupWizard(server, None), "setup_support_download")
     assert calls == [1] and not state["error"]
     sup = state["support"]
@@ -67,10 +68,97 @@ def test_download_installs_and_asks_for_restart(server, keyfree_build, monkeypat
 def test_download_failure_is_reported(server, keyfree_build, monkeypatch):
     def offline():
         raise support.SupportError("Couldn't download pyremoteplay from PyPI (wheel: no network).")
-    monkeypatch.setattr(support, "download", offline)
+    monkeypatch.setattr(support, "download_all", offline)
     state = step(SetupWizard(server, None), "setup_support_download")
     assert "Couldn't download" in state["error"] and state["support"]["state"] == "missing"
     assert any(k == "error" for k, _ in server.events)
+
+
+# Opt-in sign-in values -------------------------------------------------------------------------
+
+def real_client():
+    import pyremoteplay.oauth as installed_oauth
+    return support.parse_oauth_source(Path(installed_oauth.__file__).read_bytes())
+
+
+@pytest.fixture
+def download_with_sign_in(monkeypatch):
+    monkeypatch.setattr(support, "download_all",
+                        lambda: support.Extracted(tables(), real_client(), "PyPI, test"))
+
+
+def test_sign_in_is_off_unless_ticked(server, keyfree_build, download_with_sign_in):
+    state = step(SetupWizard(server, None), "setup_support_download")   # box not ticked
+    assert state["support"]["state"] == "ready"
+    assert state["support"]["sign_in"]["state"] == "missing" and state["psn_configured"] is False
+
+
+def test_ticking_the_box_enables_sign_in(server, keyfree_build, download_with_sign_in):
+    state = step(SetupWizard(server, None), "setup_support_download", sign_in=True)
+    assert state["support"]["state"] == "ready" and state["support"]["sign_in"]["state"] == "ready"
+    assert state["psn_configured"] is True
+    assert any("Sign in with PlayStation is enabled" in m for _, m in server.events)
+    assert real_client()[1] not in json.dumps(state)     # never sent to the interface
+
+
+def test_sign_in_problem_keeps_the_tables(server, keyfree_build, monkeypatch):
+    monkeypatch.setattr(support, "download_all", lambda: support.Extracted(
+        tables(), None, "PyPI, test", "oauth.py doesn't match"))
+    state = step(SetupWizard(server, None), "setup_support_download", sign_in=True)
+    assert not state["error"] and state["support"]["state"] == "ready"
+    assert state["support"]["sign_in"]["state"] == "missing"
+    assert any("weren't added" in m for _, m in server.events)
+
+
+def test_oauth_file_needs_the_box(server, keyfree_build, tmp_path):
+    import pyremoteplay.oauth as installed_oauth
+    path = tmp_path / "oauth.py"
+    path.write_bytes(Path(installed_oauth.__file__).read_bytes())
+    server.pick_file = lambda: str(path)
+    state = step(SetupWizard(server, None), "setup_support_file")
+    assert "Tick" in state["error"] and state["support"]["sign_in"]["state"] == "missing"
+    state = step(SetupWizard(server, None), "setup_support_file", sign_in=True)
+    assert not state["error"] and state["support"]["sign_in"]["state"] == "ready"
+    assert state["support"]["state"] == "missing"      # oauth.py has no key tables
+
+
+def test_remove_sign_in_values_only(server, keyfree_build, download_with_sign_in):
+    w = SetupWizard(server, None)
+    step(w, "setup_support_download", sign_in=True)
+    state = step(w, "setup_sign_in_remove")
+    assert state["support"]["sign_in"]["state"] == "missing" and state["support"]["state"] == "ready"
+
+
+def test_use_my_browser_instead(server, keyfree_build, download_with_sign_in, monkeypatch):
+    opened_in_window, opened_in_browser = [], []
+    monkeypatch.setattr("webbrowser.open", opened_in_browser.append)
+    w = SetupWizard(server, lambda url, cb: opened_in_window.append(url))
+    step(w, "setup_support_download", sign_in=True)
+    state = step(w, "setup_psn_open", browser=True)
+    assert opened_in_browser and not opened_in_window and state["paste_needed"]
+    step(w, "setup_psn_open")
+    assert opened_in_window   # the default is the app's sign-in window
+
+
+def test_closed_sign_in_window_points_to_manual_entry(server, keyfree_build, download_with_sign_in):
+    w = SetupWizard(server, lambda url, cb: None)
+    step(w, "setup_support_download", sign_in=True)
+    asyncio.run(w._login_done(None))
+    state = w.public_state()
+    assert state["sign_in_failed"] and "account ID" in state["error"]
+
+
+def test_rejected_sign_in_points_to_manual_entry(server, keyfree_build, download_with_sign_in,
+                                                 monkeypatch):
+    def reject(code):
+        raise psn.PSNError("Sony rejected the sign-in code (HTTP 400).")
+    monkeypatch.setattr(psn, "fetch_account", reject)
+    w = SetupWizard(server, None)
+    step(w, "setup_support_download", sign_in=True)
+    state = step(w, "setup_psn_paste", url="CODE12345")
+    assert state["sign_in_failed"] and "enter your account ID instead" in state["error"]
+    state = step(w, "setup_psn_manual", account_id="42")   # and the fallback works
+    assert state["signed_in"] and not state["error"]
 
 
 def test_choose_file_needs_the_window(server, keyfree_build):
@@ -154,6 +242,57 @@ def test_status_warns_when_support_files_are_missing(keyfree_build):
 def test_status_fine_from_source():
     from ps5remote.app.server import AppServer
     assert AppServer()._status_payload()["support_missing"] is False
+
+
+@pytest.mark.parametrize("url, expected", [
+    (None, "Sign in to PlayStation Network - loading..."),
+    ("", "Sign in to PlayStation Network - loading..."),
+    ("about:blank", "Sign in to PlayStation Network - loading..."),
+    ("https://my.account.sony.com/central/signin/?x=1&code=secret",
+     "Sign in to PlayStation Network - my.account.sony.com"),
+    ("https://auth.api.sonyentertainmentnetwork.com/2.0/oauth/authorize?client_id=abc",
+     "Sign in to PlayStation Network - auth.api.sonyentertainmentnetwork.com"),
+    ("http://evil.example/login", "Sign in to PlayStation Network - evil.example (NOT a secure connection)"),
+])
+def test_login_window_title_shows_the_domain(url, expected):
+    title = app_main.login_window_title(url)
+    assert title == expected
+    assert "secret" not in title and "client_id" not in title   # never the path or query
+
+
+class FakeLoginWindow:
+    def __init__(self, urls):
+        self.urls, self.titles, self.destroyed = list(urls), [], False
+        self.events = type("E", (), {"closed": self})()
+
+    def __iadd__(self, handler):   # window.events.closed += handler
+        return self
+
+    def get_current_url(self):
+        return self.urls.pop(0) if len(self.urls) > 1 else self.urls[0]
+
+    def set_title(self, title):
+        self.titles.append(title)
+
+    def destroy(self):
+        self.destroyed = True
+
+
+def test_sign_in_window_title_follows_the_page(monkeypatch):
+    import threading
+    real_sleep = app_main.time.sleep
+    monkeypatch.setattr(app_main.time, "sleep", lambda s: real_sleep(0.001))
+    window = FakeLoginWindow(["https://my.account.sony.com/signin", "https://my.account.sony.com/signin",
+                              "https://id.sonyentertainmentnetwork.com/x",
+                              "https://remoteplay.dl.playstation.net/remoteplay/redirect?code=ABC"])
+    webview = type("W", (), {"create_window": staticmethod(lambda *a, **k: window)})
+    got = threading.Event()
+    result = []
+    app_main.make_login_opener(webview)("https://start", lambda r: (result.append(r), got.set()))
+    assert got.wait(5)
+    assert window.titles[:2] == ["Sign in to PlayStation Network - my.account.sony.com",
+                                 "Sign in to PlayStation Network - id.sonyentertainmentnetwork.com"]
+    assert result[0].endswith("code=ABC") and window.destroyed
 
 
 @pytest.mark.parametrize("frozen, kwargs, tail", [

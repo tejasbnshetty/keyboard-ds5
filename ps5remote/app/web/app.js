@@ -888,6 +888,18 @@ function renderWizard() {
   if (!s.psn_configured) $("#wiz-manual").hidden = false;
   $("#wiz-manual-btn").disabled = !!s.busy;
   $("#wiz-signin").disabled = !s.psn_configured || !!s.busy || s.login_window_open;
+  $("#wiz-signin-browser").hidden = !s.embedded_login;
+  $("#wiz-signin-browser").disabled = !!s.busy || s.login_window_open;
+  const keyfree = !!(s.support && s.support.needed);
+  $("#wiz-psn-missing").textContent = keyfree
+    ? "Sign in with PlayStation isn't enabled, so enter your account ID below. (To enable it, tick the box in Settings → Remote Play support files and download again.)"
+    : "Sign-in with PlayStation isn't available in this copy of the app, so enter your account ID below.";
+  if (s.sign_in_failed && !wiz.signInFailShown) {
+    wiz.signInFailShown = true;
+    $("#wiz-manual").hidden = false;
+    if (wiz.step === 3) $("#wiz-account-id").focus();
+  }
+  if (!s.sign_in_failed) wiz.signInFailShown = false;
   $("#wiz-keep").hidden = !s.existing_account || !!s.signed_in;
   $("#wiz-existing").textContent = s.existing_account || "";
   $("#wiz-signin-hint").textContent = s.embedded_login
@@ -956,13 +968,26 @@ function renderSupport(sup) {
   else if (sup.state === "invalid") text = "The stored support files are damaged or were changed, so they aren't used. Download them again.";
   else text = "Not installed. Remote Play needs them to pair and connect.";
   $("#support-status").textContent = text;
+
+  const si = sup.sign_in || { state: "missing" };
+  $("#support-signin-remove").hidden = si.state === "missing";
+  $("#support-signin-status").textContent = si.state === "ready"
+    ? `Sign in with PlayStation: enabled (values from ${si.source}${si.installed ? ` on ${si.installed}` : ""}).`
+    : si.state === "invalid"
+      ? "Sign in with PlayStation: the stored sign-in values are damaged or were changed, so sign-in is off."
+      : "Sign in with PlayStation: off. Setup asks for your account ID.";
 }
 
-$("#wiz-support-download").addEventListener("click", () => wizSend({ type: "setup_support_download" }));
-$("#wiz-support-file").addEventListener("click", () => wizSend({ type: "setup_support_file" }));
+$("#wiz-support-download").addEventListener("click", () => wizSend({ type: "setup_support_download", sign_in: $("#wiz-support-signin").checked }));
+$("#wiz-support-file").addEventListener("click", () => wizSend({ type: "setup_support_file", sign_in: $("#wiz-support-signin").checked }));
 $("#wiz-support-restart-btn").addEventListener("click", () => send({ type: "setup_restart" }));
-$("#support-download").addEventListener("click", () => send({ type: "setup_support_download" }));
-$("#support-file").addEventListener("click", () => send({ type: "setup_support_file" }));
+$("#support-download").addEventListener("click", () => send({ type: "setup_support_download", sign_in: $("#support-signin").checked }));
+$("#support-file").addEventListener("click", () => send({ type: "setup_support_file", sign_in: $("#support-signin").checked }));
+$("#support-signin-remove").addEventListener("click", async () => {
+  if (await confirmBox("Remove the sign-in values? Sign in with PlayStation won't be offered; you can still enter your account ID.")) {
+    send({ type: "setup_sign_in_remove" });
+  }
+});
 $("#support-restart").addEventListener("click", () => send({ type: "setup_restart" }));
 $("#support-remove").addEventListener("click", async () => {
   if (await confirmBox("Remove the Remote Play support files? The app can't pair or connect without them until you add them again (and restart).")) {
@@ -978,6 +1003,7 @@ $("#wiz-search").addEventListener("click", () => wizSend({ type: "setup_discover
 $("#wiz-use-ip").addEventListener("click", () => wizSend({ type: "setup_use_console", ip: $("#wiz-ip").value.trim() }));
 $("#wiz-ip").addEventListener("keydown", (e) => { if (e.key === "Enter") $("#wiz-use-ip").click(); });
 $("#wiz-signin").addEventListener("click", () => wizSend({ type: "setup_psn_open" }));
+$("#wiz-signin-browser").addEventListener("click", () => wizSend({ type: "setup_psn_open", browser: true }));
 $("#wiz-keep-btn").addEventListener("click", () => wizSend({ type: "setup_psn_keep" }));
 $("#wiz-show-paste").addEventListener("click", () => { $("#wiz-paste").hidden = false; $("#wiz-paste-url").focus(); });
 $("#wiz-show-manual").addEventListener("click", () => { $("#wiz-manual").hidden = false; $("#wiz-account-id").focus(); });

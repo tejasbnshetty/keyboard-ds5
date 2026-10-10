@@ -40,6 +40,7 @@ class SetupWizard:
         self.paired = False
         self.login_window_open = False
         self.paste_needed = False
+        self.sign_in_failed = False   # the interface then makes "enter my account ID" the way on
 
     def existing_account(self) -> str | None:
         # Read the file directly: config.profiles() would create an empty profiles.json.
@@ -67,6 +68,7 @@ class SetupWizard:
             "embedded_login": self.open_login is not None,
             "login_window_open": self.login_window_open,
             "paste_needed": self.paste_needed,
+            "sign_in_failed": self.sign_in_failed,
             "paired": self.paired,
             "busy": self.busy,
             "error": self.error,
@@ -86,6 +88,8 @@ class SetupWizard:
             "source": found["source"],
             "installed": found["installed"],
             "restart_needed": keyfree.ACTIVE and installed != keyfree.TABLES_OK,
+            "sign_in": support.sign_in_status(support.default_dir()) if keyfree.ACTIVE
+            else {"state": "missing", "source": "", "installed": ""},
             "can_pick_file": self.server.pick_file is not None,
             "can_restart": self.server.restart is not None,
             "version": support.PYREMOTEPLAY_VERSION,
@@ -107,6 +111,7 @@ class SetupWizard:
             "setup_support_download": self._support_download,
             "setup_support_file": self._support_file,
             "setup_support_remove": self._support_remove,
+            "setup_sign_in_remove": self._sign_in_remove,
             "setup_restart": self._restart,
         }
         handler = handlers.get(kind)
@@ -167,14 +172,17 @@ class SetupWizard:
                             "state": ps5.state_from_status(status)}
         await self._busy("Checking the PS5...", go())
 
-    async def _psn_open(self, _data: dict) -> None:
+    async def _psn_open(self, data: dict) -> None:
         try:
             url = psn.login_url()
         except psn.PSNError as err:
             self.error = str(err)
+            self.sign_in_failed = True
             return
+        self.sign_in_failed = False
         loop = asyncio.get_running_loop()
-        if self.open_login:
+        # data["browser"]: "Use my browser instead", where the real address bar shows Sony's site.
+        if self.open_login and not data.get("browser"):
             def on_result(redirect: str | None) -> None:  # called from a GUI thread
                 loop.call_soon_threadsafe(lambda: asyncio.ensure_future(self._login_done(redirect)))
             self.login_window_open = True
@@ -188,7 +196,11 @@ class SetupWizard:
         if redirect:
             await self._exchange(redirect)
         else:
-            self.paste_needed = True  # window closed without finishing
+            # Window closed without finishing.
+            self.paste_needed = True
+            self.sign_in_failed = True
+            self.error = ("The sign-in window closed before finishing. Enter your account ID "
+                          "instead, or paste the address.")
         await self.push()
 
     async def _psn_paste(self, data: dict) -> None:
@@ -200,7 +212,12 @@ class SetupWizard:
             online_id, account_id = await asyncio.to_thread(psn.fetch_account, code)
             self.signed_in, self._pending_account_id = online_id, account_id
             self.paste_needed = False
+            self.sign_in_failed = False
         await self._busy("Signing in...", go())
+        if self.error:
+            self.sign_in_failed = True
+            self.error = f"Couldn't sign in: {self.error} You can enter your account ID instead."
+
 
     async def _psn_manual(self, data: dict) -> None:
         """The account ID typed in by hand, instead of signing in. Not saved until paired."""
@@ -215,23 +232,39 @@ class SetupWizard:
 
     # Remote Play support files (key-free public build) ------------------------------------
 
-    async def _install_support(self, label: str, get_tables) -> None:
+    async def _install_support(self, label: str, get_extracted, sign_in: bool) -> None:
+        """Store what a download or file provided. The key tables and the (opt-in) sign-in
+        values are saved independently: one failing never blocks the other."""
         async def go():
-            tables, description = await asyncio.to_thread(get_tables)
-            await asyncio.to_thread(support.save, support.default_dir(), tables, description)
-            await self.server.event("info", f"Support files installed ({description}). Restart "
-                                            "the app to finish.")
+            found = await asyncio.to_thread(get_extracted)
+            folder = support.default_dir()
+            if found.tables is None and not (sign_in and found.client):
+                raise support.SupportError(
+                    "That file only has the sign-in values. Tick \"Also enable Sign in with "
+                    "PlayStation\" to use it, or choose the full package or keys.py.")
+            if found.tables is not None:
+                await asyncio.to_thread(support.save, folder, found.tables, found.description)
+                await self.server.event("info", f"Support files installed ({found.description}). "
+                                                "Restart the app to finish.")
+            if sign_in and found.client:
+                await asyncio.to_thread(support.save_sign_in, folder, found.client, found.description)
+                await self.server.event("info", "Sign in with PlayStation is enabled.")
+            elif sign_in:
+                await self.server.event("info", "Sign-in values weren't added: "
+                                                f"{found.client_problem} You can still enter your "
+                                                "account ID.")
         await self._busy(label, go())
         if self.error:
             await self.server.event("error", self.error)
 
-    async def _support_download(self, _data: dict) -> None:
+    async def _support_download(self, data: dict) -> None:
         if not keyfree.ACTIVE:
             return
         await self._install_support(
-            f"Downloading pyremoteplay {support.PYREMOTEPLAY_VERSION} from PyPI...", support.download)
+            f"Downloading pyremoteplay {support.PYREMOTEPLAY_VERSION} from PyPI...",
+            support.download_all, data.get("sign_in") is True)
 
-    async def _support_file(self, _data: dict) -> None:
+    async def _support_file(self, data: dict) -> None:
         if not keyfree.ACTIVE:
             return
         if not self.server.pick_file:
@@ -241,13 +274,21 @@ class SetupWizard:
         path = await asyncio.to_thread(self.server.pick_file)
         if not path:
             return   # cancelled
-        await self._install_support("Checking the file...", lambda: support.tables_from_file(path))
+        await self._install_support("Checking the file...", lambda: support.extract_file(path),
+                                    data.get("sign_in") is True)
 
     async def _support_remove(self, _data: dict) -> None:
         if not keyfree.ACTIVE:
             return
         support.remove(support.default_dir())
         await self.server.event("info", "Support files removed. Restart the app to apply this.")
+
+    async def _sign_in_remove(self, _data: dict) -> None:
+        if not keyfree.ACTIVE:
+            return
+        support.remove_sign_in(support.default_dir())
+        await self.server.event("info", "Sign-in values removed. Enter your account ID when setting "
+                                        "up.")
 
     async def _restart(self, _data: dict) -> None:
         if not self.server.restart:

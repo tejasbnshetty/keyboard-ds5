@@ -42,6 +42,9 @@
         (<span id="wiz-support-size"></span>), checks it against pinned SHA-256 checksums, reads the
         five PS5 tables out of it without running any of its code, and keeps them in your data
         folder. Nothing else is sent anywhere.</p>
+      <label class="check optin"><input type="checkbox" id="wiz-support-signin"> Also enable
+        Sign in with PlayStation</label>
+      <p class="hint-left optin-note">Uses the PS Remote Play app's sign-in identity, as chiaki-ng does. You can always enter your account ID instead.</p>
       <div class="row">
         <button id="wiz-support-download" class="action primary">Download from PyPI</button>
         <button id="wiz-support-file" class="action">I have the file…</button>
@@ -87,6 +90,7 @@
       <div id="wiz-signin-block">
         <button id="wiz-signin" class="action primary">Sign in with PlayStation</button>
         <p id="wiz-signin-hint" class="hint-left"></p>
+        <button id="wiz-signin-browser" class="link-btn" type="button">Use my browser instead</button>
         <button id="wiz-show-paste" class="link-btn" type="button">Paste the address instead</button>
       </div>
       <button id="wiz-show-manual" class="link-btn" type="button">Enter my account ID instead</button>
@@ -367,10 +371,15 @@
       <div id="support-panel" class="account" hidden>
         <h3>Remote Play support files</h3>
         <p id="support-status" class="hint-left"></p>
+        <p id="support-signin-status" class="hint-left"></p>
+        <label class="check optin"><input type="checkbox" id="support-signin"> Also enable Sign in
+          with PlayStation (when downloading or choosing a file)</label>
+        <p class="hint-left optin-note">Uses the PS Remote Play app's sign-in identity, as chiaki-ng does. You can always enter your account ID instead.</p>
         <div class="row">
           <button id="support-download" class="action">Re-download from PyPI</button>
           <button id="support-file" class="action">Choose file…</button>
           <button id="support-remove" class="action danger">Remove support files</button>
+          <button id="support-signin-remove" class="action danger" hidden>Remove sign-in values</button>
           <button id="support-restart" class="action primary" hidden>Restart to apply</button>
         </div>
       </div>
