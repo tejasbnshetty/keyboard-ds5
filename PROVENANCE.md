@@ -23,6 +23,11 @@ through pyremoteplay's stream.
 | `ps5remote/rpsession.py` | **Mixed** (see below) |
 | `ps5remote/gamepad.py` | **Original code.** The button IDs, the two-byte event form (ID + 0x20 while pressed), analog L2/R2 values, newest-first event history, and the 8 ms / 200 ms state intervals are protocol behaviour **looked up** in chiaki-ng (`lib/src/feedback.c`, `feedbacksender.c`). Packets are built with pyremoteplay's `RPStream.send_feedback` and `ControllerState` |
 | `ps5remote/gameinput.py` | **Original** |
+| `ps5remote/support.py`, `ps5remote/keyfree.py` | **Original.** `support.py` holds **SHA-256 hashes only** (of the pyremoteplay 0.7.6 wheel and sdist, its `keys.py`, and each of the five PS5 tables), never key values. `keyfree.py` provides stand-ins for the modules the public build leaves out |
+| `tools/*` | **Original** (build checks, notices, packaging, release notes, icon generator) |
+| `assets/keyboardds5.ico`, `assets/keyboardds5-256.png` | **Original artwork**, drawn by `tools/make_icon.py` |
+| `packaging/README.txt`, `packaging/RELEASE_NOTES.md` | **Original** |
+| `packaging/notices/*`, `packaging/licenses/*` | **Third-party licence texts**, stored so the notices can be generated offline: CPython 3.11 `Doc/license.rst`, the Microsoft WebView2 SDK 1.0.3856.49 `LICENSE.txt` and `NOTICE.txt` (from its NuGet package), and the terms for proxy_tools (which ships without a licence file) |
 | `tests/*` | **Original** |
 | `app_maps.json`, `psn_client.example.json`, `README.md`, `PROVENANCE.md` | **Original** |
 | `setup.bat`, `app.bat`, `ps5.bat`, `build.bat`, `test.bat`, `run_app.py`, `ps5remote.spec`, `pytest.ini`, `requirements*.txt` | **Original** |
@@ -92,9 +97,29 @@ session, not stored.
 | Button IDs, event format, analog-trigger values, send intervals | **this repo**, `ps5remote/gamepad.py` | chiaki-ng, pyremoteplay |
 | Remote Play error codes | **this repo**, `ps5remote/ps5.py` | chiaki-ng, pyremoteplay |
 
-**In a PyInstaller build:** every .exe bundles pyremoteplay, so it contains all the key tables
-and pyremoteplay's copy of the sign-in credentials, plus pyps4-2ndscreen's `PUBLIC_KEY` and
-`RANDOM_SEED`. A personal build also contains the builder's own `psn_client.json`.
+### What each build contains
+
+| | Key tables | PSN client values | pyps4-2ndscreen key and seed | Your `psn_client.json` |
+|---|---|---|---|---|
+| This repository | No | No | No | No |
+| Source install (after `setup.bat`) | In the installed pyremoteplay | In the installed pyremoteplay | In the installed pyps4-2ndscreen | Optional, in your data folder |
+| **Public build** (`build.bat public`, and CI) | **No.** The five PS5 tables are fetched by the user at first run (below) | **No** | **No** | **No** |
+| Personal build (never distributed) | Yes (all 10) | Yes | Yes | Yes |
+
+**The public build is key-free.** It leaves out `pyremoteplay.keys`, `pyremoteplay.oauth` and all
+of pyps4-2ndscreen; `ps5remote/keyfree.py` provides stand-ins. Every public build is checked by
+`tools/check_keyfree.py`, which searches every file, archive member and compiled constant for
+the 10 tables, the client values (plain, base64, UTF-16) and pyps4-2ndscreen's key and seed. It
+compares them, never prints them, and fails the build if anything is found.
+
+**Where the public build gets the tables.** At first run, and only when the user clicks, the app
+downloads pyremoteplay 0.7.6 from PyPI (`files.pythonhosted.org`). It tries the wheel first, then
+the source archive. Alternatively, the user chooses the wheel, the archive or its `keys.py`
+from disk. The download or file must match a pinned SHA-256. `keys.py` is parsed as data
+(Python's `ast` module) and never executed. Only the five PS5 tables are kept, each checked
+against its own pinned SHA-256, in the user's data folder. They are checked again at every
+start. The PS4 tables are never stored. So the user obtains the tables from pyremoteplay
+(GPL-3.0), just as a source install does, and this project doesn't distribute them.
 
 ## Licences
 
@@ -128,14 +153,17 @@ This applies to anyone who distributes this project.
 - **pyremoteplay (GPL-3.0):** the app imports and subclasses it, and a PyInstaller .exe bundles
   it. GPL-3.0 §13 explicitly allows combining GPL-3.0 code with AGPL-3.0 code, so the combined
   work is distributed under AGPL-3.0 with pyremoteplay keeping its own GPL-3.0 terms.
-- **pyps4-2ndscreen (LGPL):** fine, as long as its source is available and it can be replaced.
+- **pyps4-2ndscreen (LGPL):** not in the public build. A source install or personal build
+  uses it from PyPI, which is fine as long as its source is available and it can be replaced.
 - **Not a licence issue, but a risk:** the Remote Play protocol, its key tables and the PSN
   client ID/secret are Sony's. Publishing them, or an app containing them, may conflict with
   Sony's terms. This repository doesn't contain them (see
-  [Sony-derived material](#sony-derived-material)), but every PyInstaller build bundles
-  pyremoteplay, so **distributing any .exe also distributes the key tables and pyremoteplay's
-  copy of the client values**. The public build (`build.bat public`) doesn't add the builder's own
-  `psn_client.json`; a personal build (`KeyboardDS5-personal.exe`) does, and must never be
-  distributed.
+  [Sony-derived material](#sony-derived-material)). The **public build** contains none of them
+  (checked on every build). A **personal build** (`KeyboardDS5-personal.exe`) contains all of
+  them plus the builder's own `psn_client.json`, and must never be distributed. CI refuses to
+  make one.
 - With any .exe release, include `LICENSE`, this file, and the third-party licence notices of the
-  bundled dependencies.
+  bundled dependencies. `tools/package_release.py` adds all three to the public build:
+  `LICENSE.txt`, `PROVENANCE.md` and `THIRD-PARTY-NOTICES.txt`, which is generated from what
+  the build actually bundles and fails if any licence text is missing. The source of the bundled
+  pyremoteplay is the unmodified PyPI release; everything else is in this repository.

@@ -66,7 +66,10 @@ Prefer a standalone program? See [Building the .exe](#building-the-exe).
 
 ## Setup wizard
 
-Each step has plain instructions, Back / Next, and a **Retry** button after an error.
+Each step has plain instructions, Back / Next, and a **Retry** button after an error. The
+[public .exe](#public-build-key-free) starts with one extra step, **Remote Play support files**
+([what and why](#remote-play-support-files-public-build)): download them from PyPI or choose
+the file, then **Restart to finish**. Running from source skips it.
 
 1. **Find PS5:** searches your network and lists the consoles it finds. You can also enter
    the IP address (on the PS5: **Settings → Network → Connection Status → View Connection
@@ -74,7 +77,7 @@ Each step has plain instructions, Back / Next, and a **Retry** button after an e
 2. **Account:** give the app your PSN account ID, in one of two ways:
    - **Enter my account ID instead:** type the number, or its 12-character encoded form ending
      in `=` ([how to find it](#finding-your-account-id)). An optional name is shown in the app.
-     If sign-in values aren't set up, this is the only option shown.
+     If sign-in values aren't set up, or in the public .exe, this is the only option shown.
    - **Sign in with PlayStation** (needs [sign-in values](#psn-sign-in-values)): opens Sony's
      sign-in page and closes itself when you're done. If that doesn't work, use **Paste the
      address instead**. Copy the address of the page the browser lands on (it may look blank
@@ -201,6 +204,9 @@ Press duration, idle disconnect, hold-repeat delay and speed, safe connect, the 
 mouse-capture hotkeys (which can't be bound in a profile), the gaming settings above, and
 **PS5 & account**.
 
+**Remote Play support files** (public .exe only): where the support files came from, plus
+**Re-download from PyPI**, **Choose file…**, **Remove support files** and **Restart to apply**.
+
 **About** (top-right corner, or at the bottom of Settings): the version, licence notice,
 links to the source code, licence and code origins, and the disclaimer. `--version` works
 from the command line too.
@@ -264,7 +270,8 @@ refuses to pair.
 
 ## PSN sign-in values
 
-Optional. Instead of [typing your account ID](#finding-your-account-id), the wizard can sign in
+Optional, and only when running from source or in a personal build: the public .exe has no PSN
+sign-in. Instead of [typing your account ID](#finding-your-account-id), the wizard can sign in
 to PSN through Sony's Remote Play sign-in page and read the account ID for you. That page
 requires an OAuth client ID and secret. **This project doesn't include them**: they aren't in
 its source code or git history, and you add them yourself.
@@ -306,9 +313,11 @@ account-ID entry instead. `psn_client.json` is gitignored. Never commit or share
 
 ## Building the .exe
 
-You can package the app as a single `KeyboardDS5.exe` that runs without Python or a terminal:
-handy for a desktop shortcut, or for running it on another PC. No prebuilt downloads are
-published, so build it yourself from the source.
+You can package the app as a program that runs without Python or a terminal: handy for a
+desktop shortcut, or for running it on another PC. **No prebuilt downloads are published yet**,
+so build it yourself from the source.
+
+### Public build (key-free)
 
 1. **Do the [Quick start](#quick-start) steps 1 and 2** (Python and `.\setup.bat`). Setup
    installs PyInstaller, which does the packaging.
@@ -318,34 +327,76 @@ published, so build it yourself from the source.
    .\build.bat public
    ```
 
-   This takes a minute or two and creates `dist\KeyboardDS5.exe`.
-3. **Optional: sign-in values for the .exe.** Without them, you type your account ID in the
-   wizard. To use sign-in instead, put your `psn_client.json` in the .exe's data folder,
-   `%APPDATA%\KeyboardDS5\data` (see [PSN sign-in values](#psn-sign-in-values)), or use the
-   environment variables.
-4. **Run `dist\KeyboardDS5.exe`.** On first run it opens the setup wizard. If you've already
-   paired from source, run it from `dist\` once first: it finds the project's `data` folder
-   and offers to copy it (the original stays). After that you can move the .exe anywhere, for
-   example to your desktop.
+   This takes a minute or two and creates:
+   - `dist\KeyboardDS5\`: the app as one folder. Run `KeyboardDS5.exe` and keep the
+     `_internal` folder next to it. The folder also holds `LICENSE.txt`, `PROVENANCE.md`,
+     `README.txt` and `THIRD-PARTY-NOTICES.txt` (the licences of everything bundled).
+   - `dist\KeyboardDS5-<version>-windows-x64.zip`, its `.sha256`, and `check_keyfree.txt`.
+3. **Run `dist\KeyboardDS5\KeyboardDS5.exe`.** On first run it opens the setup wizard, starting
+   with [Remote Play support files](#remote-play-support-files-public-build). If you've already
+   paired from source, it finds the project's `data` folder and offers to copy it (the original
+   stays). After that you can move the `KeyboardDS5` folder anywhere.
 
-**Personal build.** `.\build.bat` without `public` bundles your `data\psn_client.json` into
-`dist\KeyboardDS5-personal.exe`, so step 3 isn't needed. It's for your own PC only: it contains
-your sign-in values, says "personal build" in its title bar, and must never be shared or
-uploaded (`dist\` and `*-personal.exe` are gitignored). If there's no `data\psn_client.json`,
-`build.bat` makes a public build instead. Neither build contains pairing data.
+**What "key-free" means.** The public build contains **no Sony key tables and no PSN sign-in
+values**. It leaves out pyremoteplay's `keys.py` and `oauth.py` and all of pyps4-2ndscreen, and
+gets the five PS5 tables at first run instead. It has no PSN sign-in; you type your account ID.
+`build.bat` checks every build with `tools\check_keyfree.py`, which searches every file,
+archive member and compiled constant for the key tables, the sign-in values and
+pyps4-2ndscreen's key material, comparing them without printing them. The build fails if
+anything is found.
 
-Note that every build, public or personal, bundles the pyremoteplay library, and its source
-contains its own copy of the sign-in values. This app never uses that copy, but anyone
-distributing a build is distributing those values too.
+### Remote Play support files (public build)
 
-**Good to know:**
+Remote Play needs five small key tables for the PS5 (see PROVENANCE.md,
+[Sony-derived material](PROVENANCE.md#sony-derived-material)). Running from source, they come
+from the pyremoteplay package that `setup.bat` installs. The public build asks for them in the
+first setup step:
+
+- **Download from PyPI.** Only when you click. The app fetches
+  [pyremoteplay 0.7.6](https://pypi.org/project/pyremoteplay/0.7.6/) (the wheel, or the source
+  archive if that fails) from `files.pythonhosted.org` over HTTPS, and checks it against a pinned
+  SHA-256. It reads the five PS5 tables out of `keys.py` **as data, never running it**, checks
+  each table against its own pinned SHA-256, and stores them in
+  `%APPDATA%\KeyboardDS5\data\support\`.
+- **I have the file…** Choose the pyremoteplay 0.7.6 wheel (`.whl`), source archive (`.tar.gz`)
+  or its `keys.py`. The same checks apply, and a changed file is rejected. This needs the app
+  window; `--browser` mode can only download.
+- Then **Restart to finish**: pyremoteplay reads the tables when it starts, so the app relaunches
+  itself.
+
+The stored tables are checked again every time the app starts. **Settings → Remote Play support
+files** shows where they came from, and can re-download, choose a file, or remove them.
+
+### Personal build
+
+`.\build.bat` without `public` makes `dist\KeyboardDS5-personal.exe` (one file) if
+`data\psn_client.json` exists. It contains the full libraries, so it has the key tables and
+pyremoteplay's copy of the sign-in values, plus **your** `psn_client.json`. It needs no
+support-files step and keeps PSN sign-in. It's for your own PC only: it says "personal build" in
+its title bar, and must never be shared or uploaded (`dist\` and `*-personal.exe` are
+gitignored). Personal builds are refused in CI. Neither build contains pairing data.
+
+### Release workflow
+
+`.github/workflows/release.yml` builds the public variant only. It:
+1. refuses any personal-build input or output;
+2. runs the tests;
+3. builds, packages and runs the key-free check;
+4. attests where the zip came from.
+
+Pushing a tag `vX.Y.Z` that matches the app version creates a **draft** release for review; it
+is published only by pressing Publish on GitHub. A manual run builds the zip as a workflow
+artifact without creating a release.
+
+### Good to know
+
 - The .exe accepts the same options as `.\ps5.bat app` (e.g. `KeyboardDS5.exe --setup`), and
   writes its logs to `%APPDATA%\KeyboardDS5\logs`.
 - It isn't code-signed, so Windows SmartScreen may say "Windows protected your PC" the first
   time. Choose **More info → Run anyway**, but only for a build you made yourself or trust.
 - The PC running it needs Microsoft Edge WebView2 (built into Windows 11 and current Windows
   10).
-- Rebuild after updating the source. The .exe doesn't update itself.
+- Rebuild after updating the source. The app doesn't update itself.
 
 ## Your data
 
@@ -359,12 +410,15 @@ distributing a build is distributing those values too.
 - `profiles.json`: your PSN account ID and the pairing keys. **Don't share it**: anyone on your
   network with it could control your console.
 - `keymaps.json`: your profiles and bindings.
+- `support\remoteplay-tables.json` (public .exe only): the five Remote Play key tables, where
+  they came from, and when. Checked against pinned hashes every time the app starts.
 
 To start over, delete the data folder or use **Sign out & forget everything**.
 
 On first run, the .exe looks for older data and **asks before copying it**: first in
 `%APPDATA%\PS5Remote\data` (the folder name before the project was renamed), then a `data`
-folder next to the .exe or one folder up. It copies and never moves, so the old folder stays
+folder next to the .exe, one folder up or two up (the project's own `data` folder when the
+.exe is in `dist\KeyboardDS5\`). It copies and never moves, so the old folder stays
 until you delete it. If you say no, it won't ask again.
 
 ### Privacy and security
@@ -374,6 +428,9 @@ until you delete it. If you say no, it won't ask again.
 - No password or PSN access token is ever stored. Only the account ID and pairing keys are.
 - Logs never contain keys, tokens, sign-in codes or the PIN. Every log line passes through a
   redaction filter.
+- The public .exe only goes online for the console on your network, plus PyPI when **you** click
+  Download in the support-files step. There's no telemetry and no update check. Running from
+  source, signing in to PSN (if set up) also contacts Sony's sign-in servers.
 
 ### Firewall
 
@@ -424,6 +481,14 @@ If the address does change, run the setup again or `.\ps5.bat discover`.
   green "Mouse captured" bar shows.
 - **Mouse won't capture:** click inside the window first, and wait a second after pressing
   Esc before capturing again. As a fallback, try `.\ps5.bat app --browser`.
+- **"Couldn't download pyremoteplay from PyPI":** check the internet connection, or download
+  `pyremoteplay-0.7.6-py3-none-any.whl` from
+  [PyPI](https://pypi.org/project/pyremoteplay/0.7.6/#files) yourself and use **I have the
+  file…**.
+- **"…checksum doesn't match" / "…doesn't match the expected table":** the file isn't the
+  pinned pyremoteplay 0.7.6, or it was changed or damaged. Use the original from PyPI.
+- **"Remote Play support files aren't installed yet" / "…aren't loaded":** add them in
+  **Settings → Remote Play support files**, then restart the app.
 - **"Connected, but the PS5 never finished starting the session":** usually another Remote
   Play app is connected; close it and try again. If it keeps happening after a PS5 system
   update, the update may have changed the Remote Play protocol. Check this project's page for
@@ -475,12 +540,16 @@ kept in `ps5remote/watch.py`. To experiment, add `"features": {"watch_mode": tru
 | `ps5remote/rpsession.py` | Session fixes on top of pyremoteplay |
 | `ps5remote/ps5.py`, `psn.py` | Discovery, status, pairing, wake; PSN sign-in |
 | `ps5remote/settings.py`, `keymaps.py`, `config.py` | Settings, input profiles, data folder |
+| `ps5remote/support.py`, `keyfree.py` | Remote Play support files (pinned hashes only) and the public build's import stand-ins |
 | `ps5remote/app/` | The Windows app: `server.py`, `wizard.py`, `main.py`, and the `web/` interface |
 | `ps5remote/__main__.py`, `keyremote.py` | The command-line tool and terminal keyboard remote |
 | `ps5remote/watch.py`, `appmaps.py`, `app_maps.json` | Watch mode (disabled) and the streaming-app list |
+| `tools/` | Build checks and packaging: `check_keyfree.py`, `third_party_notices.py`, `package_release.py`, `release_notes.py`, `make_icon.py` |
+| `packaging/`, `assets/` | Release README and notes template, stored third-party notice texts, the icon |
 | `tests/` | Offline test suite: no console or network needed |
 
-Run the tests with `.\test.bat` (any pytest options can follow).
+Run the tests with `.\test.bat` (any pytest options can follow). To also check the pinned
+PyPI download for real, set `KEYBOARDDS5_NETWORK_TESTS=1` first.
 
 ## Licence and credits
 
