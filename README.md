@@ -416,6 +416,8 @@ artifact without creating a release.
 - The PC running it needs Microsoft Edge WebView2 (built into Windows 11 and current Windows
   10).
 - Rebuild after updating the source. The app doesn't update itself.
+- Close Keyboard DS5 before building: Windows can't replace a running program, so `build.bat`
+  refuses to start while it's running.
 
 ## Your data
 

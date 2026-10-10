@@ -60,6 +60,19 @@ def test_workflow_only_releases_from_tags(workflow):
     assert release["if"] == "startsWith(github.ref, 'refs/tags/')"
 
 
+def test_build_bat_refuses_while_the_app_is_running():
+    text = (ROOT / "build.bat").read_text(encoding="utf-8")
+    lines = text.splitlines()
+    check = [i for i, line in enumerate(lines) if "tasklist" in line and "goto :running" in line]
+    build = next(i for i, line in enumerate(lines) if "pyinstaller.exe" in line)
+    assert len(check) == 2 and all(i < build for i in check)   # both exe names, before building
+    assert ":running" in lines and ":error" in lines
+    assert lines.index(":running") < lines.index(":error")
+    assert all(line.rstrip().endswith("goto :error") for line in lines if "pyinstaller.exe" in line
+               and "||" in line)
+    assert (ROOT / "build.bat").read_bytes().count(b"\r\n") == len(lines)   # CRLF throughout
+
+
 def test_spec_refuses_personal_builds_in_ci():
     spec = (ROOT / "ps5remote.spec").read_text(encoding="utf-8")
     assert 'personal and (os.environ.get("CI") or os.environ.get("GITHUB_ACTIONS"))' in spec

@@ -12,6 +12,9 @@ if not exist ".venv\Scripts\pyinstaller.exe" (
     pause
     exit /b 1
 )
+rem Windows can't replace a program while it's running, so refuse rather than fail halfway.
+tasklist /FI "IMAGENAME eq KeyboardDS5.exe" /NH 2>nul | find /I "KeyboardDS5.exe" >nul && goto :running
+tasklist /FI "IMAGENAME eq KeyboardDS5-personal.exe" /NH 2>nul | find /I "KeyboardDS5-personal.exe" >nul && goto :running
 if not exist build mkdir build
 
 set PS5REMOTE_PERSONAL=0
@@ -47,6 +50,14 @@ echo Built dist\KeyboardDS5\ and its release zip in dist\   ^(public, key-free^)
 echo The app keeps its data in %%APPDATA%%\KeyboardDS5. On first run it asks before copying
 echo older data (%%APPDATA%%\PS5Remote, or a data folder next to the .exe or one folder up).
 exit /b 0
+
+:running
+echo.
+echo Keyboard DS5 is running. Close it first: Windows can't replace a program while it's
+echo running. If you can't find its window, run this in PowerShell, then build again:
+echo     Stop-Process -Name KeyboardDS5, KeyboardDS5-personal -ErrorAction SilentlyContinue
+pause
+exit /b 1
 
 :error
 if exist build\PERSONAL_BUILD.txt del build\PERSONAL_BUILD.txt
