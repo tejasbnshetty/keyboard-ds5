@@ -88,6 +88,21 @@ class Device(RPDevice):
         return self._session
 
 
+SUPPORT_MISSING = ("Remote Play support files aren't installed yet. Open Settings > Remote Play "
+                   "support files (or run the setup again) to add them.")
+
+
+class SupportMissing(PS5Error):
+    """Retrying won't help: the support files have to be installed (then the app restarted)."""
+
+
+def require_support() -> None:
+    """The key-free public build can't pair or connect until the support files are loaded."""
+    from . import support  # pylint: disable=import-outside-toplevel
+    if not support.ready():
+        raise SupportMissing(SUPPORT_MISSING)
+
+
 def is_ipv4(text: str) -> bool:
     try:
         ipaddress.IPv4Address(text)
@@ -169,6 +184,7 @@ def pair_console(host: str, user: str, pin: str, account_id: str | None = None) 
     """Nothing is saved unless pairing succeeds. account_id: a new, unsaved sign-in."""
     if not (pin.isdigit() and len(pin) == 8):
         raise PS5Error("The PIN must be exactly 8 digits.")
+    require_support()
     profiles = config.profiles()
     if account_id:
         from . import psn  # pylint: disable=import-outside-toplevel

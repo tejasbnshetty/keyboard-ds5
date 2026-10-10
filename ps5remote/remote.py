@@ -122,6 +122,7 @@ class Remote:
     async def _ensure_connected(self, wake: bool = True) -> None:
         if self.connected:
             return
+        ps5.require_support()   # before waking the console for nothing
         self._teardown_session()
         woke = False
         state = ps5.state_from_status(await ps5.async_get_status(self.host))
@@ -190,12 +191,13 @@ class Remote:
                 if isinstance(err, ps5.SessionBusy):
                     deadline = max(deadline, start + RETRY_WINDOW)
                 out_of_time = attempt >= 2 and time.monotonic() > deadline
-                if ps5.is_fatal(str(err)) or out_of_time:
+                if isinstance(err, ps5.SupportMissing) or ps5.is_fatal(str(err)) or out_of_time:
                     raise
                 self._emit("progress", f"Not ready yet ({err}) - retrying...")
                 await asyncio.sleep(2)
 
     async def _open_session(self) -> None:
+        ps5.require_support()
         profiles = config.profiles()
         device = ps5.Device(self.host)
         if not await device.async_get_status():
