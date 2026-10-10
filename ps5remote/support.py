@@ -7,12 +7,19 @@ material"). Source installs use the copy in the installed pyremoteplay package. 
 (or takes the file from disk), checks it against pinned SHA-256 hashes, reads the tables out
 of pyremoteplay/keys.py WITHOUT executing it, and stores them in the data folder.
 
-Only hashes are pinned here, never key values. Nothing in this module imports pyremoteplay or
-config at module level: keyfree.py calls it while pyremoteplay is being imported.
+Optionally (opt-in in the setup wizard), the same verified wheel or sdist also provides the
+PS Remote Play app's OAuth client ID and secret from pyremoteplay/oauth.py, read the same way
+(parsed, never executed, hash-checked). They're stored separately in the data folder and used
+only to sign in to PSN. A problem with them never affects the key tables.
+
+Only hashes are pinned here, never key tables or sign-in values. Nothing in this module imports
+pyremoteplay or config at module level: keyfree.py calls it while pyremoteplay is being imported.
 """
 from __future__ import annotations
 
 import ast
+import base64
+import binascii
 import hashlib
 import io
 import json
@@ -39,6 +46,10 @@ class Source:
     size: int
     sha256: str
     member: str     # path of keys.py inside the archive
+
+    @property
+    def oauth_member(self) -> str:
+        return self.member.replace("keys.py", "oauth.py")
 
 
 SOURCES = (
@@ -68,7 +79,14 @@ TABLES = {
 }
 PS4_NAMES = ("HMAC_KEY_PS4", "REG_KEY_0_PS4", "REG_KEY_1_PS4", "SESSION_KEY_0_PS4", "SESSION_KEY_1_PS4")
 
+# PSN sign-in values (opt-in): pyremoteplay/oauth.py and the two values in it, hashes only.
+OAUTH_FILE_SIZE = 6688
+OAUTH_FILE_SHA256 = "5dde9d4343049f0d1b3911276c4bc688aa8951f6cd9710e7d10dd193113b2e97"
+CLIENT_ID_SHA256 = "d31b32a273be2adf3f57d3729646862c86917756a13e3b680e1c50e94f10da43"
+CLIENT_SECRET_SHA256 = "ae60b6ee79a8db97e63f931d0c9176a20dcf9a398297a6650140761267dce49d"  # decoded
+
 TABLES_FILE = "remoteplay-tables.json"
+SIGN_IN_FILE = "psn-sign-in.json"
 FORMAT = 1
 MAX_FILE = 2_000_000          # bytes accepted from a download or a chosen file
 DOWNLOAD_TIMEOUT = 30
@@ -129,6 +147,47 @@ def check_tables(tables: dict[str, bytes]) -> dict[str, bytes]:
     return {name: bytes(tables[name]) for name in TABLES}
 
 
+def parse_oauth_source(source: bytes) -> tuple[str, str]:
+    """(client ID, client secret) from pyremoteplay's oauth.py, parsed and never executed.
+    The secret is stored there base64-encoded; this returns it decoded."""
+    try:
+        tree = ast.parse(source.decode("utf-8"), filename="oauth.py")
+    except (SyntaxError, UnicodeDecodeError, ValueError) as err:
+        raise SupportError("The sign-in file couldn't be read.") from err
+    found = {}
+    for stmt in tree.body:
+        if (isinstance(stmt, ast.Assign) and len(stmt.targets) == 1
+                and isinstance(stmt.targets[0], ast.Name)
+                and stmt.targets[0].id in ("__CLIENT_ID", "__CLIENT_SECRET")):
+            if not (isinstance(stmt.value, ast.Constant) and isinstance(stmt.value.value, str)):
+                raise SupportError(f"{stmt.targets[0].id} in the sign-in file isn't plain data.")
+            found[stmt.targets[0].id] = stmt.value.value
+    if set(found) != {"__CLIENT_ID", "__CLIENT_SECRET"}:
+        raise SupportError("The sign-in values weren't found in the file.")
+    try:
+        secret = base64.b64decode(found["__CLIENT_SECRET"], validate=True).decode("utf-8")
+    except (binascii.Error, ValueError) as err:
+        raise SupportError("The sign-in secret in the file isn't in the expected form.") from err
+    return found["__CLIENT_ID"], secret
+
+
+def check_client(client_id: str, secret: str) -> tuple[str, str]:
+    """Both sign-in values match their pinned hashes."""
+    if not (isinstance(client_id, str) and isinstance(secret, str)
+            and _sha(client_id.encode()) == CLIENT_ID_SHA256
+            and _sha(secret.encode()) == CLIENT_SECRET_SHA256):
+        raise SupportError("The sign-in values don't match the expected ones (the file may be "
+                           "damaged or altered).")
+    return client_id, secret
+
+
+def _client_from_oauth_file(data: bytes) -> tuple[str, str]:
+    if _sha(data) != OAUTH_FILE_SHA256:
+        raise SupportError(f"That isn't pyremoteplay {PYREMOTEPLAY_VERSION}'s oauth.py, or it has "
+                           "been changed (its checksum doesn't match).")
+    return check_client(*parse_oauth_source(data))
+
+
 def _from_keys_file(data: bytes) -> dict[str, bytes]:
     if _sha(data) != KEYS_FILE_SHA256:
         raise SupportError(f"That isn't pyremoteplay {PYREMOTEPLAY_VERSION}'s keys.py, or it has "
@@ -136,48 +195,90 @@ def _from_keys_file(data: bytes) -> dict[str, bytes]:
     return check_tables(parse_keys_source(data))
 
 
-def _from_archive(data: bytes, source: Source) -> dict[str, bytes]:
+@dataclass
+class Extracted:
+    """What a file or download provided. Either part can be missing: a problem with the
+    sign-in values never stops the key tables from being used, and vice versa."""
+    tables: dict[str, bytes] | None
+    client: tuple[str, str] | None
+    description: str
+    client_problem: str = ""    # why there are no sign-in values (for the user)
+
+
+def _read_member(data: bytes, source: Source, member: str, limit: int) -> bytes:
+    name = member.rsplit("/", 1)[-1]
     try:
         if source.kind == "wheel":
             with zipfile.ZipFile(io.BytesIO(data)) as archive:
-                info = archive.getinfo(source.member)
-                if info.file_size > KEYS_FILE_SIZE * 2:
-                    raise SupportError("keys.py in the archive is unexpectedly large.")
-                member = archive.read(info)
-        else:
-            with tarfile.open(fileobj=io.BytesIO(data), mode="r:gz") as archive:
-                info = archive.getmember(source.member)
-                if not info.isfile() or info.size > KEYS_FILE_SIZE * 2:
-                    raise SupportError("keys.py in the archive isn't a normal file.")
-                member = archive.extractfile(info).read()
+                info = archive.getinfo(member)
+                if info.file_size > limit:
+                    raise SupportError(f"{name} in the archive is unexpectedly large.")
+                return archive.read(info)
+        with tarfile.open(fileobj=io.BytesIO(data), mode="r:gz") as archive:
+            info = archive.getmember(member)
+            if not info.isfile() or info.size > limit:
+                raise SupportError(f"{name} in the archive isn't a normal file.")
+            return archive.extractfile(info).read()
     except (KeyError, zipfile.BadZipFile, tarfile.TarError, OSError, EOFError) as err:
-        raise SupportError("keys.py couldn't be read from the archive.") from err
-    return _from_keys_file(member)
+        raise SupportError(f"{name} couldn't be read from the archive.") from err
 
 
-def tables_from_bytes(data: bytes) -> tuple[dict[str, bytes], str]:
-    """A pinned wheel, a pinned sdist, or pyremoteplay's keys.py -> (tables, description)."""
+def _from_archive(data: bytes, source: Source) -> Extracted:
+    """A pinned (already hash-checked) wheel or sdist -> tables and, if possible, sign-in values."""
+    tables = _from_keys_file(_read_member(data, source, source.member, KEYS_FILE_SIZE * 2))
+    description = f"pyremoteplay {PYREMOTEPLAY_VERSION} {source.kind}"
+    try:
+        client = _client_from_oauth_file(
+            _read_member(data, source, source.oauth_member, OAUTH_FILE_SIZE * 2))
+    except SupportError as err:
+        return Extracted(tables, None, description, str(err))
+    return Extracted(tables, client, description)
+
+
+def extract_bytes(data: bytes) -> Extracted:
+    """A pinned wheel or sdist (tables + sign-in values), pyremoteplay's keys.py (tables only),
+    or its oauth.py (sign-in values only). Anything else is refused."""
     if len(data) > MAX_FILE:
-        raise SupportError("That file is too large to be pyremoteplay or its keys.py.")
+        raise SupportError("That file is too large to be pyremoteplay or one of its files.")
     digest = _sha(data)
     for source in SOURCES:
         if digest == source.sha256:
-            return _from_archive(data, source), f"pyremoteplay {PYREMOTEPLAY_VERSION} {source.kind}"
+            return _from_archive(data, source)
     if data[:4] == b"PK\x03\x04" or data[:2] == b"\x1f\x8b":
         raise SupportError(f"That archive isn't the pyremoteplay {PYREMOTEPLAY_VERSION} download "
                            "from PyPI (its checksum doesn't match).")
-    return _from_keys_file(data), f"pyremoteplay {PYREMOTEPLAY_VERSION} keys.py"
+    if digest == OAUTH_FILE_SHA256:
+        return Extracted(None, _client_from_oauth_file(data),
+                         f"pyremoteplay {PYREMOTEPLAY_VERSION} oauth.py")
+    return Extracted(_from_keys_file(data), None, f"pyremoteplay {PYREMOTEPLAY_VERSION} keys.py",
+                     "keys.py only has the key tables; the sign-in values are in the full "
+                     "package (or its oauth.py).")
 
 
-def tables_from_file(path: str | Path) -> tuple[dict[str, bytes], str]:
+def extract_file(path: str | Path) -> Extracted:
     path = Path(path)
     try:
         if path.stat().st_size > MAX_FILE:
-            raise SupportError("That file is too large to be pyremoteplay or its keys.py.")
+            raise SupportError("That file is too large to be pyremoteplay or one of its files.")
         data = path.read_bytes()
     except OSError as err:
         raise SupportError(f"Couldn't read {path.name} ({err.__class__.__name__}).") from err
-    return tables_from_bytes(data)
+    return extract_bytes(data)
+
+
+def tables_from_bytes(data: bytes) -> tuple[dict[str, bytes], str]:
+    """Key tables only, from a pinned wheel or sdist or pyremoteplay's keys.py."""
+    found = extract_bytes(data)
+    if found.tables is None:
+        raise SupportError("That file only has the sign-in values, not the key tables.")
+    return found.tables, found.description
+
+
+def tables_from_file(path: str | Path) -> tuple[dict[str, bytes], str]:
+    found = extract_file(path)
+    if found.tables is None:
+        raise SupportError("That file only has the sign-in values, not the key tables.")
+    return found.tables, found.description
 
 
 # Download ----------------------------------------------------------------------------------
@@ -196,7 +297,7 @@ def _fetch(url: str) -> bytes:
     return data
 
 
-def download(fetch: Callable[[str], bytes] = _fetch) -> tuple[dict[str, bytes], str]:
+def download_all(fetch: Callable[[str], bytes] = _fetch) -> Extracted:
     """Only call this when the user asked for it. Tries the wheel, then the sdist."""
     problems = []
     for source in SOURCES:
@@ -208,9 +309,17 @@ def download(fetch: Callable[[str], bytes] = _fetch) -> tuple[dict[str, bytes], 
         if _sha(data) != source.sha256:
             problems.append(f"{source.kind}: checksum didn't match")
             continue
-        return _from_archive(data, source), f"PyPI, pyremoteplay {PYREMOTEPLAY_VERSION} {source.kind}"
+        found = _from_archive(data, source)
+        found.description = f"PyPI, {found.description}"
+        return found
     raise SupportError("Couldn't download pyremoteplay from PyPI (" + "; ".join(problems) + "). "
                        "Check the internet connection, or use \"I have the file\".")
+
+
+def download(fetch: Callable[[str], bytes] = _fetch) -> tuple[dict[str, bytes], str]:
+    """Key tables only (see download_all)."""
+    found = download_all(fetch)
+    return found.tables, found.description
 
 
 # Stored copy in the data folder -----------------------------------------------------------
@@ -262,12 +371,66 @@ def status(support_dir: Path) -> dict:
             "installed": found["installed"] if found else ""}
 
 
-def remove(support_dir: Path) -> None:
-    for name in (TABLES_FILE, Path(TABLES_FILE).with_suffix(".tmp").name):
+def _delete(support_dir: Path, filename: str) -> None:
+    for name in (filename, Path(filename).with_suffix(".tmp").name):
         try:
             (support_dir / name).unlink()
         except FileNotFoundError:
             pass
+
+
+def remove(support_dir: Path) -> None:
+    """All support files: the key tables and any sign-in values."""
+    _delete(support_dir, TABLES_FILE)
+    _delete(support_dir, SIGN_IN_FILE)
+
+
+# PSN sign-in values (opt-in), stored separately from the tables ------------------------------
+
+def save_sign_in(support_dir: Path, client: tuple[str, str], description: str) -> None:
+    client_id, secret = check_client(*client)
+    support_dir.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "format": FORMAT,
+        "pyremoteplay": PYREMOTEPLAY_VERSION,
+        "source": description,
+        "installed": time.strftime("%Y-%m-%d %H:%M"),
+        "client_id": client_id,
+        "client_secret": secret,
+    }
+    path = support_dir / SIGN_IN_FILE
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text(json.dumps(payload, indent=1), encoding="utf-8")
+    os.replace(tmp, path)
+
+
+def _read_sign_in(support_dir: Path) -> tuple[dict | None, str]:
+    path = support_dir / SIGN_IN_FILE
+    if not path.is_file():
+        return None, "missing"
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        client = check_client(payload["client_id"], payload["client_secret"])
+    except (OSError, ValueError, KeyError, TypeError, SupportError):
+        return None, "invalid"
+    return {"client": client, "source": payload.get("source", ""),
+            "installed": payload.get("installed", "")}, "ready"
+
+
+def load_sign_in(support_dir: Path) -> tuple[str, str] | None:
+    """(client ID, secret) if installed and valid, else None. Never raises."""
+    found, _ = _read_sign_in(support_dir)
+    return found["client"] if found else None
+
+
+def sign_in_status(support_dir: Path) -> dict:
+    found, state = _read_sign_in(support_dir)
+    return {"state": state, "source": found["source"] if found else "",
+            "installed": found["installed"] if found else ""}
+
+
+def remove_sign_in(support_dir: Path) -> None:
+    _delete(support_dir, SIGN_IN_FILE)
 
 
 def ready() -> bool:
