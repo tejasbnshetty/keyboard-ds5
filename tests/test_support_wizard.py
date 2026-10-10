@@ -231,6 +231,18 @@ def test_wizard_never_sends_people_to_settings():
     assert 'id="wiz-enable-signin-open"' in account and "as chiaki-ng does" in account
 
 
+@pytest.mark.parametrize("box", ["wiz-support-signin", "support-signin"])
+def test_opt_in_box_is_visible_and_unticked(box):
+    """Support step and Settings: the opt-in sits in its own "Optional" card, never pre-ticked."""
+    import re
+    html = (Path(__file__).resolve().parent.parent / "ps5remote" / "app" / "web" / "index.html").read_text(encoding="utf-8")
+    tag = re.search(rf'<input[^>]*id="{box}"[^>]*>', html).group(0)
+    assert 'type="checkbox"' in tag and "checked" not in tag
+    card_start = html.rfind('<div class="optin-card">', 0, html.index(tag))
+    assert card_start != -1 and html.index(tag) - card_start < 300
+    assert "as chiaki-ng does" in html[html.index(tag):html.index(tag) + 600]
+
+
 def test_choose_file_needs_the_window(server, keyfree_build):
     state = step(SetupWizard(server, None), "setup_support_file")
     assert "browser mode" in state["error"]

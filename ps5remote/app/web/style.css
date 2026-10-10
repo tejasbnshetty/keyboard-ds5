@@ -149,8 +149,15 @@ footer { padding: 6px 16px 10px; }
 .about-version { color: var(--muted); margin-top: 0; }
 .about-links { padding-left: 18px; }
 .about-links a { color: var(--accent); }
-.optin { display: flex; align-items: center; gap: 6px; margin: 10px 0 2px; }
-.optin-note { margin: 0 0 10px 24px; }
+.optin-card {
+  margin: 14px 0; padding: 10px 12px 2px; border: 1px solid #3a4160; border-radius: 8px;
+  background: var(--raised);
+}
+.optin-title { margin: 0 0 4px; font-size: 11px; font-weight: 700; letter-spacing: .06em;
+  text-transform: uppercase; color: var(--muted); }
+.optin { display: flex; align-items: center; gap: 8px; margin: 4px 0 2px; cursor: pointer; }
+.optin input { width: 18px; height: 18px; margin: 0; accent-color: var(--accent); }
+.optin-note { margin: 0 0 10px 26px; }
 .enable-signin { margin-top: 14px; padding-top: 10px; border-top: 1px solid #2a2f3e; }
 .enable-signin .optin-note { margin-left: 0; }
 .modal-error { color: #ff9a9d; font-size: 13px; margin: 8px 0 0; }

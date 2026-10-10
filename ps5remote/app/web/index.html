@@ -42,9 +42,13 @@
         (<span id="wiz-support-size"></span>), checks it against pinned SHA-256 checksums, reads the
         five PS5 tables out of it without running any of its code, and keeps them in your data
         folder. Nothing else is sent anywhere.</p>
-      <label class="check optin"><input type="checkbox" id="wiz-support-signin"> Also enable
-        Sign in with PlayStation</label>
-      <p class="hint-left optin-note">Uses the PS Remote Play app's sign-in identity, as chiaki-ng does. You can always enter your account ID instead.</p>
+      <div class="optin-card">
+        <p class="optin-title">Optional</p>
+        <label class="check optin"><input type="checkbox" id="wiz-support-signin">
+          <strong>Also enable Sign in with PlayStation</strong></label>
+        <p class="hint-left optin-note">Uses the PS Remote Play app's sign-in identity, as chiaki-ng does. You can always enter your account ID instead. If you leave this off, you'll type your account ID
+          (and can still turn sign-in on during setup).</p>
+      </div>
       <div class="row">
         <button id="wiz-support-download" class="action primary">Download from PyPI</button>
         <button id="wiz-support-file" class="action">I have the file…</button>
@@ -382,9 +386,12 @@
         <h3>Remote Play support files</h3>
         <p id="support-status" class="hint-left"></p>
         <p id="support-signin-status" class="hint-left"></p>
-        <label class="check optin"><input type="checkbox" id="support-signin"> Also enable Sign in
-          with PlayStation (when downloading or choosing a file)</label>
-        <p class="hint-left optin-note">Uses the PS Remote Play app's sign-in identity, as chiaki-ng does. You can always enter your account ID instead.</p>
+        <div class="optin-card">
+          <p class="optin-title">Optional</p>
+          <label class="check optin"><input type="checkbox" id="support-signin">
+            <strong>Also enable Sign in with PlayStation</strong> (when downloading or choosing a file)</label>
+          <p class="hint-left optin-note">Uses the PS Remote Play app's sign-in identity, as chiaki-ng does. You can always enter your account ID instead.</p>
+        </div>
         <div class="row">
           <button id="support-download" class="action">Re-download from PyPI</button>
           <button id="support-file" class="action">Choose file…</button>
