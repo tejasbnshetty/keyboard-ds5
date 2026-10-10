@@ -1,0 +1,98 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Builds the key-free PUBLIC release only. Personal builds (which contain private PSN sign-in
+# values) are refused here three ways: this workflow pins PS5REMOTE_PERSONAL=0, ps5remote.spec
+# refuses a personal build when CI is set, and the steps below fail on any personal-build input
+# or output.
+#
+# Push a tag vX.Y.Z (matching ps5remote.__version__) to create a DRAFT release for review; it is
+# only published when you press Publish on GitHub. A manual run builds and uploads the zip as a
+# workflow artifact without creating a release.
+name: Release (public, key-free)
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    permissions:
+      contents: write        # create the draft release
+      id-token: write        # build provenance attestation
+      attestations: write
+    env:
+      PS5REMOTE_PERSONAL: "0"
+      PYTHONHASHSEED: "0"
+      PYTHONUTF8: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Refuse personal-build inputs
+        shell: pwsh
+        run: |
+          if ($env:PS5REMOTE_PERSONAL -ne "0") { throw "Only the public build may be made in CI." }
+          if (Test-Path data) { throw "A data/ folder must not exist in CI." }
+          $tracked = git ls-files | Select-String -Pattern '(^|/)psn_client\.json$|PERSONAL_BUILD|-personal\.exe$'
+          if ($tracked) { throw "Personal-build files are tracked in git: $tracked" }
+          if ($env:PS5REMOTE_PSN_CLIENT_ID -or $env:PS5REMOTE_PSN_CLIENT_SECRET) { throw "PSN sign-in values must not be set in CI." }
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11.5"   # exact patch: matches the notices (OpenSSL 3.0.9)
+
+      - name: Install pinned dependencies
+        run: |
+          python -m pip install --no-deps --prefer-binary -r requirements.txt
+          python -m pip install --prefer-binary -r requirements-app.txt
+          python -m pip install --prefer-binary -r requirements-dev.txt
+
+      - name: Tag matches the app version
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: pwsh
+        run: |
+          $version = python -c "import ps5remote; print(ps5remote.__version__)"
+          if ("${{ github.ref_name }}" -ne "v$version") { throw "Tag ${{ github.ref_name }} doesn't match version $version." }
+
+      - name: Tests
+        run: python -m pytest
+
+      - name: Build (public, key-free, one folder)
+        run: pyinstaller --noconfirm --clean ps5remote.spec
+
+      - name: Package (licences, notices, key-free check, zip)
+        run: python tools/package_release.py dist/KeyboardDS5 --out release
+
+      - name: Refuse personal-build outputs
+        shell: pwsh
+        run: |
+          $bad = Get-ChildItem -Recurse dist, release | Where-Object { $_.Name -match 'personal|psn_client' }
+          if ($bad) { throw "Personal-build artefacts found: $($bad.FullName -join ', ')" }
+
+      - name: Release notes
+        run: python tools/release_notes.py release --repo "${{ github.repository }}" > release/RELEASE_NOTES.md
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: release/KeyboardDS5-*.zip
+
+      - name: Upload artifact (manual runs)
+        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: KeyboardDS5-public
+          path: release/
+
+      - name: Create draft release (tags only)
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $zip = Get-ChildItem release/KeyboardDS5-*.zip
+          gh release create "${{ github.ref_name }}" $zip.FullName "$($zip.FullName).sha256" release/check_keyfree.txt `
+            --draft --title "Keyboard DS5 ${{ github.ref_name }}" --notes-file release/RELEASE_NOTES.md

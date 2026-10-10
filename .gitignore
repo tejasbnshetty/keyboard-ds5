@@ -22,3 +22,7 @@ KeyboardDS5.exe
 
 # Temporary file from tools/check_keyfree.py
 tools/.check_keyfree.pyz
+tools/.notices.pyz
+
+# CI release output
+release/

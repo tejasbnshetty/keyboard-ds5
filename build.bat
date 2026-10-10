@@ -3,8 +3,9 @@ rem SPDX-License-Identifier: AGPL-3.0-only
 rem Build the app into dist\.
 rem   build.bat          personal build if data\psn_client.json exists: the full libraries plus
 rem                      your sign-in values. For your own PC only; never distribute it.
-rem   build.bat public   key-free public build: no Sony key tables or sign-in values inside
-rem                      (the app gets the tables at first run). Checked by tools\check_keyfree.py.
+rem   build.bat public   key-free public build in dist\KeyboardDS5\ (one folder), packaged by
+rem                      tools\package_release.py: licences and notices added, checked for Sony
+rem                      key material (tools\check_keyfree.py), zipped with a SHA-256.
 cd /d "%~dp0"
 if not exist ".venv\Scripts\pyinstaller.exe" (
     echo Run setup.bat first.
@@ -38,9 +39,9 @@ if "%PS5REMOTE_PERSONAL%"=="1" (
     echo Built dist\KeyboardDS5-personal.exe   ^<-- PERSONAL, DO NOT DISTRIBUTE
     goto done
 )
-echo Checking that the public build contains no Sony key material...
-".venv\Scripts\python.exe" tools\check_keyfree.py dist\KeyboardDS5.exe || goto :error
-echo Built dist\KeyboardDS5.exe   ^(public, key-free^)
+echo Adding licences and notices, checking for Sony key material, and zipping...
+".venv\Scripts\python.exe" tools\package_release.py dist\KeyboardDS5 --out dist || goto :error
+echo Built dist\KeyboardDS5\ and its release zip in dist\   ^(public, key-free^)
 
 :done
 echo The app keeps its data in %%APPDATA%%\KeyboardDS5. On first run it asks before copying
