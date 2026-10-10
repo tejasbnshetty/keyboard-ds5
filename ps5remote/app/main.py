@@ -25,7 +25,8 @@ class Redact(logging.Filter):
     """Last line of defence: scrub sign-in codes, tokens, PINs and secrets from every log line."""
 
     PATTERN = re.compile(
-        r"(?i)\b(code|token|access_token|refresh_token|client_secret|pin)(['\"]?\s*[:=]\s*['\"]?)([^&\s'\",}]+)")
+        r"(?i)\b(code|token|access_token|refresh_token|client_secret|client_id|pin)"
+        r"(['\"]?\s*[:=]\s*['\"]?)([^&\s'\",}]+)")
 
     def __init__(self):
         super().__init__()

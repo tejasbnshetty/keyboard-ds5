@@ -21,6 +21,9 @@ def _filtered(msg, *args, extra=()):
     ("client_secret='zzz'", "zzz"),
     ("PIN: 12345678", "12345678"),
     ("refresh_token=rt1 other", "rt1"),
+    ("authorize?response_type=code&client_id=11111111-2222-3333-4444-555555555555&scope=x",
+     "11111111-2222-3333-4444-555555555555"),
+    ('{"client_id": "abcdef12-0000"}', "abcdef12-0000"),
 ])
 def test_secrets_are_blanked(text, secret):
     out = _filtered(text)

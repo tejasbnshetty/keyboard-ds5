@@ -119,11 +119,31 @@ def test_restart_without_callback(server, keyfree_build):
     assert "yourself" in step(SetupWizard(server, None), "setup_restart")["error"]
 
 
-def test_no_sign_in_in_the_public_build(keyfree_build, psn_client):
-    """Even with a psn_client.json present, the key-free build doesn't sign in."""
+def test_public_build_ignores_psn_client_json(keyfree_build, psn_client):
+    """Without opted-in sign-in values, a psn_client.json doesn't enable sign-in either."""
     assert psn.is_configured() is False
     with pytest.raises(psn.PSNError):
         psn.login_url()
+
+
+def test_public_build_signs_in_with_the_stored_values(keyfree_build, monkeypatch):
+    import pyremoteplay.oauth as installed_oauth
+    client = support.parse_oauth_source(Path(installed_oauth.__file__).read_bytes())
+    support.save_sign_in(support.default_dir(), client, "test")
+    monkeypatch.setenv("PS5REMOTE_PSN_CLIENT_ID", "ignored-in-public-build")
+    monkeypatch.setenv("PS5REMOTE_PSN_CLIENT_SECRET", "ignored")
+    assert psn.is_configured() and psn._client() == client
+    url = psn.login_url()
+    assert url.startswith(psn.AUTHORIZE_URL) and f"client_id={client[0]}" in url
+    assert client[1] not in url                       # the secret never goes in the URL
+    assert f"redirect_uri={psn.REDIRECT_URL}" in url
+
+
+def test_public_build_damaged_sign_in_file_means_no_sign_in(keyfree_build):
+    folder = support.default_dir()
+    folder.mkdir(parents=True)
+    (folder / support.SIGN_IN_FILE).write_text('{"client_id": "x", "client_secret": "y"}')
+    assert psn.is_configured() is False
 
 
 def test_status_warns_when_support_files_are_missing(keyfree_build):

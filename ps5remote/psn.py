@@ -39,7 +39,10 @@ class PSNError(Exception):
 
 def _client() -> tuple[str, str] | None:
     if keyfree.ACTIVE:
-        return None   # the public build has no PSN sign-in: the account ID is entered by hand
+        # Public build: only the values the user opted to take from their pyremoteplay
+        # download (hash-checked, see support.py). Otherwise no sign-in: the account ID is typed.
+        from . import support  # pylint: disable=import-outside-toplevel
+        return support.load_sign_in(support.default_dir())
     env_id = os.environ.get("PS5REMOTE_PSN_CLIENT_ID")
     env_secret = os.environ.get("PS5REMOTE_PSN_CLIENT_SECRET")
     if env_id and env_secret:
