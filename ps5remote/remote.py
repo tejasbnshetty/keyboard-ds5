@@ -239,14 +239,15 @@ class Remote:
             await asyncio.sleep(KEEPALIVE_S)
             self.flush()
 
-    def flush(self) -> None:
-        """Send whatever changed in the wanted controller state (event loop only)."""
+    def flush(self, now: bool = False) -> None:
+        """Send whatever changed in the wanted controller state (event loop only).
+        now=True skips the stick rate limit (used for the neutral state before disconnecting)."""
         if not self._sender or not self.connected:
             return
         buttons = dict(self._game_buttons)
         buttons.update(self._tap_buttons)
         try:
-            self._sender.sync(buttons, *self._sticks, min_interval=1 / self.stick_hz)
+            self._sender.sync(buttons, *self._sticks, min_interval=0 if now else 1 / self.stick_hz)
         except Exception:  # pylint: disable=broad-except
             _LOGGER.debug("Couldn't send controller state", exc_info=True)
 
@@ -263,10 +264,10 @@ class Remote:
         return bool(self._game_buttons) or self._sticks != (CENTRE, CENTRE)
 
     def neutral(self) -> None:
-        """Release every button and centre both sticks."""
+        """Release every button and centre both sticks, sent at once (not rate-limited)."""
         self._game_buttons, self._tap_buttons = {}, {}
         self._sticks = (CENTRE, CENTRE)
-        self.flush()
+        self.flush(now=True)
 
     async def tap(self, button: str) -> float:
         """Press and release a button, connecting (and waking) first if needed.

@@ -296,6 +296,19 @@ def test_close_sends_neutral_first(remote, fake):
     assert not remote.game_active
 
 
+def test_neutral_is_sent_even_right_after_a_stick_update(remote, fake):
+    """The rate limit must never hold back the neutral state sent before disconnecting."""
+    remote.stick_hz = 1   # a stick update was just sent: the next one would wait a second
+
+    async def go():
+        await remote.connect()
+        remote.set_game({}, (1.0, 0.0), (0.0, 1.0))
+        remote.close()     # immediately
+
+    run(go())
+    assert fake.devices[0].session.stream.states[-1] == ((0, 0), (0, 0))
+
+
 def test_dropped_session_clears_game_state(remote, fake, monkeypatch):
     monkeypatch.setattr(remote_mod, "WATCH_INTERVAL", 0.01)
 
