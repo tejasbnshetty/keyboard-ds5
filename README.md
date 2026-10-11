@@ -13,6 +13,10 @@ input only. No video is streamed or decoded, so it's light and connects in about
   command-line tool is included for scripting.
 - **Fast connect:** about 1 s instead of the usual 5 s, with automatic wake from rest mode.
 
+   <p align="center">
+     <img src="docs/Screenshot.png" alt="Keyboard DS5 remote screen: controller layout with key bindings and live stick visualiser" width="700">
+   </p>
+
 ## About this project
 
 Keyboard DS5 is a hobby project. I built it for myself. I sometimes use it as a second
