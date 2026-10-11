@@ -1,6 +1,6 @@
 # Keyboard DS5
 
-Control a PlayStation 5 from a Windows PC over the Remote Play protocol: a TV-style remote
+Control a PlayStation 5 from a Windows PC over the Remote Play protocol. a TV-style remote
 for menus and streaming apps, and keyboard-and-mouse controls for games. It sends controller
 input only. No video is streamed or decoded, so it's light and connects in about a second.
 
@@ -12,6 +12,16 @@ input only. No video is streamed or decoded, so it's light and connects in about
 - **Easy setup:** a setup wizard finds the console, signs in to PSN and pairs, and a
   command-line tool is included for scripting.
 - **Fast connect:** about 1 s instead of the usual 5 s, with automatic wake from rest mode.
+
+## About this project
+
+Keyboard DS5 is a hobby project. I built it for myself. I sometimes use it as a second
+controller, playing with keyboard and mouse while watching the game on the TV, and as a
+remote for the PS5's menus. I'm sharing it in case it's useful to someone else.
+
+- It's free and open source (AGPL-3.0). Nothing is paid.
+- It's not affiliated with or endorsed by Sony. See the disclaimer below for the risks.
+- It's maintained in my spare time.
 
 > **Disclaimer:** This is an unofficial project. It is not affiliated with, endorsed by, or
 > supported by Sony Interactive Entertainment. "PlayStation", "PS5", "PS4" and "Remote Play"
